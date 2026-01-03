@@ -1,0 +1,193 @@
+{"subject_name": "TECHNICAL ENGLISH", "subject_code": "EBEN22001", "credits": 2}
+{"subject_name": "MATHEMATICS - I", "subject_code": "EBMA22001", "credits": 4}
+{"subject_name": "ENGINEERING PHYSICS", "subject_code": "EBPH22ET1", "credits": 3}
+{"subject_name": "ENGINEERING CHEMISTRY", "subject_code": "EBCH22ET1", "credits": 3}
+{"subject_name": "BASIC MECHANICAL & CIVIL ENGINEERING", "subject_code": "EBME22ET1", "credits": 3}
+{"subject_name": "C PROGRAMMING AND MS OFFICE TOOLS", "subject_code": "EBCS22ET1", "credits": 2}
+{"subject_name": "ORIENTATION TO ENTREPRENEURSHIP & PROJECT LAB", "subject_code": "EBCC22I01", "credits": 1}
+{"subject_name": "DIGITAL SKILLS-PYTHON PROGRAMMING", "subject_code": "EBDS22ET1", "credits": 3}
+{"subject_name": "MATHEMATICS - II", "subject_code": "EBMA22003", "credits": 4}
+{"subject_name": "SOLID STATE PHYSICS", "subject_code": "EBPH22001", "credits": 3}
+{"subject_name": "TECHNICAL CHEMISTRY", "subject_code": "EBCH22001", "credits": 3}
+{"subject_name": "ENGINEERING GRAPHICS", "subject_code": "EBME22001", "credits": 3}
+{"subject_name": "FUNDAMENTALS OF COMPUTER ENGINEERING", "subject_code": "EBCS22001", "credits": 3}
+{"subject_name": "COMMUNICATIVE ENGLISH LAB", "subject_code": "EBCC22I02", "credits": 1}
+{"subject_name": "JAVA PROGRAMMING FUNDAMENTALS", "subject_code": "EBDS22ET2", "credits": 2}
+{"subject_name": "ENVIRONMENTAL SCIENCE(Audit Course)", "subject_code": "EBCC22I03", "credits": 0}
+{"subject_name": "Internet of Things and its Applications", "subject_code": "EBEC22OE1", "credits": 3}
+{"subject_name": "Cellular Mobile communication", "subject_code": "EBEC22OE2", "credits": 3}
+{"subject_name": "Satellite and its Applications", "subject_code": "EBEC22OE3", "credits": 3}
+{"subject_name": "Fundamentals of Sensors", "subject_code": "EBEC22OE4", "credits": 3}
+{"subject_name": "Microprocessor Based System Design", "subject_code": "EBEC22OE5", "credits": 3}
+{"subject_name": "Industry 4.0 Concepts", "subject_code": "EBEC22OE6", "credits": 3}
+{"subject_name": "Electrical Safety for Engineers", "subject_code": "EBEE22OE1", "credits": 3}
+{"subject_name": "Energy Conservation Techniques", "subject_code": "EBEE22OE2", "credits": 3}
+{"subject_name": "Electric Vehicle Technology", "subject_code": "EBEE22OE3", "credits": 3}
+{"subject_name": "Biomedical Instrumentation", "subject_code": "EBEE22OE4", "credits": 3}
+{"subject_name": "Industrial Instrumentation", "subject_code": "EBEE22OE5", "credits": 3}
+{"subject_name": "Solar Energy Conversion System", "subject_code": "EBEE22OE6", "credits": 3}
+{"subject_name": "Wind Energy Conversion System", "subject_code": "EBEE22OE7", "credits": 3}
+{"subject_name": "Energy Storage Technology", "subject_code": "EBEE22OE8", "credits": 3}
+{"subject_name": "Electrical Machines", "subject_code": "EBEE22OE9", "credits": 3}
+{"subject_name": "Industrial Engineering", "subject_code": "EBME22OE1", "credits": 3}
+{"subject_name": "Refrigeration and Air conditioning", "subject_code": "EBME22OE2", "credits": 3}
+{"subject_name": "Automobile Engineering", "subject_code": "EBME22OE3", "credits": 3}
+{"subject_name": "Industrial Robotics", "subject_code": "EBME22OE4", "credits": 3}
+{"subject_name": "Sustainable Energy", "subject_code": "EBME22OE5", "credits": 3}
+{"subject_name": "Composite Materials", "subject_code": "EBME22OE6", "credits": 3}
+{"subject_name": "Industry 4.0", "subject_code": "EBME22OE7", "credits": 3}
+{"subject_name": "Virtual and Augmented Reality", "subject_code": "EBME22OE8", "credits": 3}
+{"subject_name": "Water Pollution and Its management", "subject_code": "EBCE22OE1", "credits": 3}
+{"subject_name": "Air Pollution Control", "subject_code": "EBCE22OE2", "credits": 3}
+{"subject_name": "Green Building and Vastu Concepts", "subject_code": "EBCE22OE3", "credits": 3}
+{"subject_name": "Climate Change and Sustainable Development", "subject_code": "EBCE22OE4", "credits": 3}
+{"subject_name": "Intelligent Transportation Systems", "subject_code": "EBCE22OE5", "credits": 3}
+{"subject_name": "Environment, Health and Safety in Industries", "subject_code": "EBCE22OE6", "credits": 3}
+{"subject_name": "Industrial Pollution Prevention and Cleaner Production", "subject_code": "EBCE22OE7", "credits": 3}
+{"subject_name": "Fundamentals of nanoscience", "subject_code": "EBCE22OE8", "credits": 3}
+{"subject_name": "Food and Nutrition", "subject_code": "EBBT22OE1", "credits": 3}
+{"subject_name": "Human Physiology", "subject_code": "EBBT22OE2", "credits": 3}
+{"subject_name": "Clinical Biochemistry", "subject_code": "EBBT22OE3", "credits": 3}
+{"subject_name": "Bioprocess Principles", "subject_code": "EBBT22OE4", "credits": 3}
+{"subject_name": "Biosensors and Biomedical Devices in Diagnostics", "subject_code": "EBBT22OE5", "credits": 3}
+{"subject_name": "Basic Bioinformatics", "subject_code": "EBBT22OE6", "credits": 3}
+{"subject_name": "Fundamentals of Nanoscience", "subject_code": "EBCT22OE1", "credits": 3}
+{"subject_name": "Electrochemical Engineering", "subject_code": "EBCT22OE2", "credits": 3}
+{"subject_name": "Alternative Fuels And Energy System", "subject_code": "EBCT22OE3", "credits": 3}
+{"subject_name": "Petrochemical Unit Processes", "subject_code": "EBCT22OE4", "credits": 3}
+{"subject_name": "Principles of Desalination Technologies", "subject_code": "EBCT22OE5", "credits": 3}
+{"subject_name": "Piping Design Engineering", "subject_code": "EBCT22OE6", "credits": 3}
+{"subject_name": "E- Waste Management", "subject_code": "EBCT22OE7", "credits": 3}
+{"subject_name": "TechnicalEntrepreneurship", "subject_code": "EBMG22OE1", "credits": 3}
+{"subject_name": "Sensors and IoT Lab", "subject_code": "EBEC22OL1", "credits": 1}
+{"subject_name": "Robotics Control Lab", "subject_code": "EBEC22OL2", "credits": 1}
+{"subject_name": "Basics of MATLAB", "subject_code": "EBEC22OL3", "credits": 1}
+{"subject_name": "Transducer Lab", "subject_code": "EBEE22OL1", "credits": 1}
+{"subject_name": "PLC and SCADA Lab", "subject_code": "EBEE22OL2", "credits": 1}
+{"subject_name": "Electrical Maintenance Lab", "subject_code": "EBEE22OL3", "credits": 1}
+{"subject_name": "Power Electronics Lab", "subject_code": "EBEE22OL4", "credits": 1}
+{"subject_name": "Bio Medical Instrumentation Lab", "subject_code": "EBEE22OL5", "credits": 1}
+{"subject_name": "Electrical Machines Lab", "subject_code": "EBEE22OL6", "credits": 1}
+{"subject_name": "Internal Combustion Engines and Steam Lab", "subject_code": "EBME22OL1", "credits": 1}
+{"subject_name": "ComputerAidedDesign and Simulation Lab", "subject_code": "EBME22OL2", "credits": 1}
+{"subject_name": "Engineering Metrology Lab", "subject_code": "EBME22OL3", "credits": 1}
+{"subject_name": "Automation Lab", "subject_code": "EBME22OL4", "credits": 1}
+{"subject_name": "Virtual and Augmented Reality Lab", "subject_code": "EBME22OL5", "credits": 1}
+{"subject_name": "Building Drawing Practice using Auto CADD", "subject_code": "EBCE22OL1", "credits": 1}
+{"subject_name": "Geographical Information System And Mapping Lab", "subject_code": "EBCE22OL2", "credits": 1}
+{"subject_name": "Environmental Engineering Laboratory", "subject_code": "EBCE22OL3", "credits": 1}
+{"subject_name": "Basic Biochemistry Lab", "subject_code": "EBBT22OL1", "credits": 1}
+{"subject_name": "Basic Bioprocess Lab", "subject_code": "EBBT22OL2", "credits": 1}
+{"subject_name": "Basic Microbiology Lab", "subject_code": "EBBT22OL3", "credits": 1}
+{"subject_name": "Basic Bioinformatics Lab", "subject_code": "EBBT22OL4", "credits": 1}
+{"subject_name": "Chemical Separation Lab", "subject_code": "EBCT22OL1", "credits": 1}
+{"subject_name": "Chemical Composition Analysis Lab", "subject_code": "EBCT22OL2", "credits": 1}
+{"subject_name": "Alternate Fuel Lab", "subject_code": "EBCT22OL3", "credits": 1}
+{"subject_name": "Food Testing Laboratory", "subject_code": "EBCT22OL4", "credits": 1}
+{"subject_name": "Cyber security & Forensics", "subject_code": "EBCS22OE1", "credits": 3}
+{"subject_name": "Artificial Intelligence", "subject_code": "EBCS22OE2", "credits": 3}
+{"subject_name": "Data Base Concepts", "subject_code": "EBCS22OE3", "credits": 3}
+{"subject_name": "Software Engineering", "subject_code": "EBCS22OE4", "credits": 3}
+{"subject_name": "Artificial Intelligence Lab", "subject_code": "EBCS22OL1", "credits": 1}
+{"subject_name": "PHP/My SQL Programming Lab", "subject_code": "EBCS22OL2", "credits": 1}
+{"subject_name": "Database Lab", "subject_code": "EBCS22OL3", "credits": 1}
+{"subject_name": "FRENCH", "subject_code": "EBFL22I01", "credits": null}
+{"subject_name": "GERMAN", "subject_code": "EBFL22I02", "credits": null}
+{"subject_name": "JAPANESE", "subject_code": "EBFL22I03", "credits": null}
+{"subject_name": "ARABIC", "subject_code": "EBFL22I04", "credits": null}
+{"subject_name": "CHINESE", "subject_code": "EBFL22I05", "credits": null}
+{"subject_name": "RUSSIAN", "subject_code": "EBFL22I06", "credits": null}
+{"subject_name": "SPANISH", "subject_code": "EBFL22I07", "credits": null}
+{"subject_name": "DISCRETE MATHEMATICS", "subject_code": "EBMA22006", "credits": 4}
+{"subject_name": "DATA STRUCTURES", "subject_code": "EBCS22002", "credits": 4}
+{"subject_name": "DATA BASE MANAGEMENT SYSTEM", "subject_code": "EBCS22003", "credits": 3}
+{"subject_name": "DIGITAL PRINCIPLES AND SYSTEM DESIGN", "subject_code": "EBEC22ID1", "credits": 3}
+{"subject_name": "BASIC ELECTRICAL ENGINEERING", "subject_code": "EBEE22ID1", "credits": 3}
+{"subject_name": "UNIVERSAL HUMAN VALUES : UNDERSTANDING HARMONY", "subject_code": "EBCC22ET1", "credits": 2}
+{"subject_name": "DATA STRUCTURES LAB", "subject_code": "EBCS22L01", "credits": 1}
+{"subject_name": "DATA BASE MANAGEMENT SYSTEMS LAB", "subject_code": "EBCS22L02", "credits": 1}
+{"subject_name": "DIGITAL SYSTEM LAB", "subject_code": "EBEC22IL1", "credits": 1}
+{"subject_name": "CLOUD APPLICATIONS DEVELOPER", "subject_code": "EBDS22ET3", "credits": 3}
+{"subject_name": "STATISTICS FOR COMPUTER ENGINEERS", "subject_code": "EBMA22011", "credits": 4}
+{"subject_name": "DESIGN AND ANALYSIS OF ALGORITHMS", "subject_code": "EBCS22004", "credits": 3}
+{"subject_name": "OPERATING SYSTEMS", "subject_code": "EBCS22005", "credits": 3}
+{"subject_name": "MICROPROCESSOR AND MICROCONTROLLERS", "subject_code": "EBEC22ID2", "credits": 3}
+{"subject_name": "THE INDIAN CONSTITUTION/THE INDIAN TRADITIONAL KNOWLEDGE(Audit Course)", "subject_code": "EBCC22I04/ EBCC22I05", "credits": 0}
+{"subject_name": "MICROPROCESSOR AND MICROCONTROLLERS LAB", "subject_code": "EBEC22IL2", "credits": 1}
+{"subject_name": "DESIGN AND ANALYSIS OF ALGORITHMS LAB", "subject_code": "EBCS22L03", "credits": 1}
+{"subject_name": "OPERATING SYSTEMS LAB", "subject_code": "EBCS22L04", "credits": 1}
+{"subject_name": "DATA WARE HOUSING AND BUSINESS INTELLIGENCE", "subject_code": "EBDS22ET4", "credits": 3}
+{"subject_name": "TECHNICAL SKILL I", "subject_code": "EBDS22I01", "credits": 1}
+{"subject_name": "SOFT SKILL I -Employability skills", "subject_code": "EBCC22I06", "credits": 1}
+{"subject_name": "COMPUTER ORGANIZATION AND ARCHITECTURE", "subject_code": "EBCS22006", "credits": 4}
+{"subject_name": "PREDICTIVE MODELS AND ANALYTICS", "subject_code": "EBDS22001", "credits": 3}
+{"subject_name": "PROGRAM ELECTIVE I", "subject_code": "EBCS22EXX", "credits": 3}
+{"subject_name": "OPEN ELECTIVE I", "subject_code": "EBXX22OEX", "credits": 3}
+{"subject_name": "ONLINECOURSE (NPTEL/SWAYAM /Any MOOC Online Course approved by AICTE/UGC)", "subject_code": "EBOL22I01", "credits": 1}
+{"subject_name": "STATISTICAL INFERRENCE LAB", "subject_code": "EBDS22L01", "credits": 1}
+{"subject_name": "PREDICTIVE MODELS AND ANALYTICS LAB", "subject_code": "EBDS22L02", "credits": 1}
+{"subject_name": "USER EXPERIENCE DESIGN", "subject_code": "EBCS22ET5", "credits": 3}
+{"subject_name": "ARTIFICIAL INTELLIGENCE AND MACHINE LEARNING", "subject_code": "EBDS22ET5", "credits": 3}
+{"subject_name": "TECHNICAL SKILL II", "subject_code": "EBDS22I02", "credits": 1}
+{"subject_name": "OBJECT ORIENTED SOFTWARE ENGINEERING", "subject_code": "EBCS22009", "credits": 3}
+{"subject_name": "WEB DESIGN USING PHP & MYSQL", "subject_code": "EBCS22010", "credits": 3}
+{"subject_name": "PROGRAM ELECTIVE II", "subject_code": "EBCS22EXX", "credits": 3}
+{"subject_name": "OPEN ELECTIVE II", "subject_code": "EBXX22OEX", "credits": 3}
+{"subject_name": "OBJECT ORIENTED SOFTWARE ENGINEERING LAB", "subject_code": "EBCS22L07", "credits": 1}
+{"subject_name": "WEB DESIGN USING PHP& MYSQL LAB", "subject_code": "EBCS22L08", "credits": 1}
+{"subject_name": "GENERATIVE AI", "subject_code": "EBDS22ET6", "credits": 3}
+{"subject_name": "SOFT SKILL II -QUALITATIVE AND QUANTITATIVE SKILLS", "subject_code": "EBCC22I07", "credits": 1}
+{"subject_name": "TECHNICAL SKILL III", "subject_code": "EBDS22I03", "credits": 1}
+{"subject_name": "MINI PROJECT/INTERNSHIP", "subject_code": "EBDS22I04", "credits": 1}
+{"subject_name": "ARCHITECTURE & MANAGEMENT OF LARGE DATA SET", "subject_code": "EBDS22002", "credits": 4}
+{"subject_name": "CONNECTED BUSINESS", "subject_code": "EBCS22013", "credits": 3}
+{"subject_name": "PROGRAM ELECTIVE III", "subject_code": "EBCS22EXX", "credits": 3}
+{"subject_name": "ADVANCED ARTIFICIAL INTELLIGENCE", "subject_code": "EBDS22003", "credits": 3}
+{"subject_name": "OPEN LAB", "subject_code": "EBXX22OLX", "credits": 1}
+{"subject_name": "DESIGN THINKING, AGILE AND DEVOPS", "subject_code": "EBDS22ET7", "credits": 3}
+{"subject_name": "PROJECT PHASE - 1", "subject_code": "EBDS22I05", "credits": 2}
+{"subject_name": "FOREIGN LANGUAGE", "subject_code": "EBFL22IXX", "credits": 1}
+{"subject_name": "PRINCIPLES OF MANAGEMENT AND BEHAVIORAL SCIENCE", "subject_code": "EBCC22ID2", "credits": 3}
+{"subject_name": "PROGRAM ELECTIVE IV", "subject_code": "EBDS22EXX", "credits": 3}
+{"subject_name": "PROGRAM ELECTIVE V", "subject_code": "EBDS22EXX", "credits": 3}
+{"subject_name": "PROJECT PHASE - II", "subject_code": "EBDS22L03", "credits": 8}
+{"subject_name": "COMPUTER NETWORKS", "subject_code": "EBCS22007", "credits": 3}
+{"subject_name": "IMAGE PROCESSING", "subject_code": "EBCS22E01", "credits": 3}
+{"subject_name": "GEOGRAPHICAL INFORMATION SYSTEMS", "subject_code": "EBCS22E02", "credits": 3}
+{"subject_name": "DATABASE TUNING", "subject_code": "EBCS22E03", "credits": 3}
+{"subject_name": "COMPONENT BASED TECHNOLOGY", "subject_code": "EBCS22E04", "credits": 3}
+{"subject_name": "E-COMMERCE", "subject_code": "EBCS22E05", "credits": 3}
+{"subject_name": "COMPUTER GRAPHICS AND MULTIMEDIA", "subject_code": "EBCS22E06", "credits": 3}
+{"subject_name": "WIRELESS AND MOBILE NETWORKING", "subject_code": "EBCS22E07", "credits": 3}
+{"subject_name": "5 G NETWORKS", "subject_code": "EBCS22E08", "credits": 3}
+{"subject_name": "PRINCIPLES OF COMPILER DESIGN", "subject_code": "EBCS22008", "credits": 3}
+{"subject_name": "INFORMATION STORAGE MANAGEMENT", "subject_code": "EBCS22E09", "credits": 3}
+{"subject_name": "RISK MANAGEMENT", "subject_code": "EBCS22E10", "credits": 3}
+{"subject_name": "CRYPTOGRAPHY AND NETWORK SECURITY", "subject_code": "EBCS22E11", "credits": 3}
+{"subject_name": "MOBILE ADHOC NETWORKS", "subject_code": "EBCS22E12", "credits": 3}
+{"subject_name": "NETWORK INFRASTRUCTURE MANAGEMENT", "subject_code": "EBCS22E13", "credits": 3}
+{"subject_name": "CYBER FORENSICS AND INTERNET SECURITY", "subject_code": "EBCS22E14", "credits": 3}
+{"subject_name": "DATABASE SECURITY", "subject_code": "EBCS22E15", "credits": 3}
+{"subject_name": "MANAGEMENT INFORMATION SYSTEMS", "subject_code": "EBCS22E16", "credits": 3}
+{"subject_name": "CLOUD COMPUTING FUNDAMENTALS", "subject_code": "EBDS22E14", "credits": 3}
+{"subject_name": "MOBILE APPLICATION DEVELOPMENT", "subject_code": "EBCS22E17", "credits": 3}
+{"subject_name": "EMBEDDED SYSTEMS ARCHITECTURES", "subject_code": "EBCS22E19", "credits": 3}
+{"subject_name": "AGILE SOFTWARE DEVELOPMENT", "subject_code": "EBCS22E20", "credits": 3}
+{"subject_name": "AUTOMATION", "subject_code": "EBCS22E21", "credits": 3}
+{"subject_name": "SOCIAL COMPUTING", "subject_code": "EBCS22E22", "credits": 3}
+{"subject_name": "ENTERPRISE ARCHITECTURE", "subject_code": "EBCS22E23", "credits": 3}
+{"subject_name": "NETWORK FORENSICS", "subject_code": "EBCS22E24", "credits": 3}
+{"subject_name": "DISTRIBUTED COMPUTING", "subject_code": "EBCS22E25", "credits": 3}
+{"subject_name": "GPU PROGRAMMING", "subject_code": "EBDS22E01", "credits": 3}
+{"subject_name": "OPERATION RESEARCH", "subject_code": "EBDS22E02", "credits": 3}
+{"subject_name": "IMAGE ANALYTICS", "subject_code": "EBDS22E03", "credits": 3}
+{"subject_name": "DATA EXPLORATION AND DATA VISUALIZATION", "subject_code": "EBDS22E04", "credits": 3}
+{"subject_name": "INTELLIGENT DATABASE SYSTEM", "subject_code": "EBDS22E05", "credits": 3}
+{"subject_name": "HEALTHCARE DATA ANALYTICS", "subject_code": "EBDS22E06", "credits": 3}
+{"subject_name": "ADVANCED DATABASES", "subject_code": "EBDS22E07", "credits": 3}
+{"subject_name": "SOCIAL NETWORK ANALYTICS", "subject_code": "EBDS22E08", "credits": 3}
+{"subject_name": "CLOUD DATA ANALYTICS", "subject_code": "EBDS22E09", "credits": 3}
+{"subject_name": "OPTIMIZATION TECHNIQUES", "subject_code": "EBDS22E10", "credits": 3}
+{"subject_name": "NON PARAMETRIC & CATEGORICAL DATA ANALYTICS", "subject_code": "EBDS22E11", "credits": 3}
+{"subject_name": "IOT AND BIG DATA ANALYTICS", "subject_code": "EBDS22E12", "credits": 3}
+{"subject_name": "STREAM PROCESSING AND ANALYTICS", "subject_code": "EBDS22E13", "credits": 3}
