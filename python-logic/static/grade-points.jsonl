@@ -1,0 +1,8 @@
+{"grade_points": 10, "letter_grade": "H", "range_of_marks": "90-100"}
+{"grade_points": 9, "letter_grade": "S", "range_of_marks": "80-89"}
+{"grade_points": 8, "letter_grade": "A", "range_of_marks": "70-79"}
+{"grade_points": 7, "letter_grade": "B", "range_of_marks": "60-69"}
+{"grade_points": 6, "letter_grade": "C", "range_of_marks": "50-59"}
+{"grade_points": 0, "letter_grade": "F", "range_of_marks": "<50"}
+{"grade_points": 0, "letter_grade": "AB", "range_of_marks": "Absent"}
+{"grade_points": 0, "letter_grade": "RA", "range_of_marks": "ReAppear"}
