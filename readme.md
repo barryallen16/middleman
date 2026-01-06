@@ -1,22 +1,19 @@
-from google import genai
-from google.genai import types
-import os 
-from dotenv import load_dotenv
-import json
+## Prompts and model used
+Model used : `gemini-3-flash-preview`
 
-load_dotenv()
-GEMINI_API_KEY=os.getenv('RESULTS_PROJ_APIKEY')
+### prompt used to extract subject name, code and its credits from regulations pdf 
 
-with open('./test-results.jpeg', 'rb') as file:
-    image_bytes= file.read()
+```
+Extract the subject name,code and it's credits and return it in a structured jsonl form. 
+Like { subject_name:'STRING', subject_code:'STRING', credits:INT}
+- Then create a multiple jsonl records as response as specified.
+- if the uploaded image is not clear enough to perform the task at hand correctly , return a error json , prompting them to upload a clearer image.
+- Be mindful of the difference between 'O' and '0' while extractning.
+```
 
-client=genai.Client(api_key=GEMINI_API_KEY)
-response = client.models.generate_content(model="gemini-3-flash-preview", 
-                                          contents=[
-                                              types.Part.from_bytes(data=image_bytes,
-                                                                    mime_type="image/jpeg")
-                                                                    ,
-"""
+### prompt used to extract subject code and grade from the user uploaded images
+
+```
 **System Role:**
 You are a specialized OCR extraction engine designed to process academic result sheets. Your output must be strictly valid machine-readable code.
 
@@ -36,15 +33,4 @@ Extract student registration details and examination results from the provided i
 3.  **Multiple Students:** If the image lists multiple students, generate one JSON line per student.
 4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object on a single line:
     {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
-"""
-])
-print(response.text)
-# lines=response.text.split("\n")
-
-# if lines[0]=="```jsonl" and lines[-1] == "```":
-#     lines.remove(lines[0])
-#     lines.remove(lines[-1])
-# with open('test-store.jsonl','w', encoding="utf-8") as file_out:
-#     for line in lines:
-#         record = json.loads(line)
-#         file_out.write(json.dumps(record)+"\n")
+```
