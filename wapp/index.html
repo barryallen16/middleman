@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MGR GPA Calculator</title>
-
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -27,9 +26,62 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   </head>
-  <body class="font-mono bg-[#0e0e0e]">
+  <body class="font-mono bg-[#0e0e0e] scroll-smooth relative">
+    <div class="absolute w-full h-dvh bg-black/80 hidden" id="toast-danger">
+      <div class="flex w-full justify-center items-center h-dvh">
+        <div
+          class="w-full max-w-xs p-4 mb-4 text-sm text-red-200 font-bold rounded-lg bg-red-600/50 border border-red-300"
+          role="alert"
+        >
+          <h3 class="font-semibold">Whoops!</h3>
+          <div class="mt-2 mb-4" id="error-message"></div>
+          <div class="flex items-center space-x-3">
+            <button
+              id="retry-btn"
+              type="button"
+              class="inline-flex items-center text-white bg-red-600 box-border border border-transparent hover:bg-red-700 focus:ring-4 focus:ring-red-500 shadow-xs font-medium leading-5 rounded-lg text-xs px-3 py-1.5 focus:outline-none"
+            >
+              <svg
+                class="w-3.5 h-3.5 me-1.5"
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 5v9m-5 0H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1h-2M8 9l4-5 4 5m1 8h.01"
+                />
+              </svg>
+              Try again
+            </button>
+            <button
+              id="close-toast-btn"
+              type="button"
+              data-dismiss-target="#toast-danger"
+              class="inline-flex items-center text-red-200 bg-transparent box-border border border-red-600 hover:bg-red-700 hover:border-danger-strong hover:text-white focus:ring-4 focus:ring-red-500 shadow-xs font-medium leading-5 rounded-lg text-xs px-3 py-1.5 focus:outline-none"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="bg-[#0e0e0e] h-dvh w-full text-white flex flex-col justify-center items-center gap-4 px-4 hidden"
+      id="loading-screen"
+    >
+      <img src="./middleman.svg" class="w-3/4 animate-pulse" />
+      <p class="animate-pulse">calculation may take a minute or two..</p>
+    </div>
     <div
       class="bg-[#0e0e0e] h-dvh w-full text-white flex flex-col justify-center items-center gap-4 px-4"
+      id="hero"
     >
       <img src="./middleman.svg" class="w-36 mt-8" />
       <div
@@ -37,7 +89,7 @@
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          class="h-4 w-4 md:h-6 md:w-6"
+          class="hidden md:flex md:h-6 md:w-6"
           viewBox="0 0 24 24"
         >
           <path
@@ -50,7 +102,9 @@
             d="M12 17.75a.75.75 0 0 0 .75-.75v-6a.75.75 0 0 0-1.5 0v6c0 .414.336.75.75.75M12 7a1 1 0 1 1 0 2a1 1 0 0 1 0-2"
           />
         </svg>
-        <p class="hidden md:flex">
+        <p
+          class="md:flex text-xs flex gap-2 justify-center items-center text-center"
+        >
           This calculator only works for 22-26 batch DS & AI students of
           Dr.M.G.R. University for now
         </p>
@@ -73,9 +127,7 @@
         >
           <h3
             class="uppercase text-red-600 font-op flex h-full justify-center items-center text-xl"
-          >
-            Jayadithya
-          </h3>
+          ></h3>
         </label>
       </div>
       <div
@@ -105,7 +157,7 @@
             />
           </svg>
         </div>
-        <ul id="preview" class="hidden list-none"></ul>
+        <ul id="preview" class="hidden list-none w-full h-full"></ul>
         <input type="file" id="file-input" accept="image/*" class="hidden" />
       </div>
       <div class="flex gap-4">
@@ -143,9 +195,57 @@
           </svg>
         </button>
       </div>
+      <button
+        id="send-img"
+        type="button"
+        class="p-4 bg-white rounded-full flex gap-2 text-black cursor-pointer disabled:cursor-not-allowed disabled:bg-white/20"
+      >
+        Test api
+      </button>
     </div>
-    <div class="h-full py-8 bg-pink-500 text-white">
-      <div class="flex justify-center items-center">
+    <div
+      class="bg-[#0e0e0e] h-dvh w-full text-white flex flex-col justify-center items-center gap-4 px-4 hidden"
+      id="select-regscreen"
+    >
+      <h1 class="text-xl uppercase text-center font-black">
+        multiple student results detected
+      </h1>
+      <label class="text-lg" for="select-regno">
+        choose your register number
+        <select
+          name="regno"
+          id="select-regno"
+          class="border-2 border-white flex w-full px-2 py-2 rounded-lg focus:bg-black focus:text-white"
+        ></select>
+      </label>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          id="view-gpa"
+          class="px-4 py-2 bg-white text-black rounded-full text-lg border-2 border-white cursor-pointer hover:bg-black hover:text-white"
+        >
+          view gpa
+        </button>
+        <button
+          type="button"
+          id="go-to-home"
+          class="px-4 py-2 bg-black rounded-full text-lg border-2 border-white cursor-pointer hover:bg-white hover:text-black"
+        >
+          try again
+        </button>
+      </div>
+    </div>
+    <div class="h-full py-8 bg-pink-500 text-white hidden" id="results">
+      <div class="flex justify-center items-center flex-col">
+        <div class="flex w-full px-2 pb-4">
+          <button
+            type="button"
+            id="go-back-btn"
+            class="flex gap-1 justify-left items-center p-1 rounded-lg text-white cursor-pointer"
+          >
+            <img src="./back.svg" class="w-4 h-4 invert" />back
+          </button>
+        </div>
         <div
           class="h-24 w-48 bg-white rounded-lg pt-8 relative -rotate-4"
           id="nameTagContainer"
@@ -176,105 +276,5 @@
         id="resultDisplay"
       ></ul>
     </div>
-    <script>
-      const dropZone = document.getElementById("dropzone");
-      const preview = document.getElementById("preview");
-      const fileInput = document.getElementById("file-input");
-      const clrbtn = document.getElementById("clear-btn");
-      const uploadText = document.getElementById("upload-text");
-      const calbtn = document.getElementById("cal-btn");
-      const apiUploadenpoint = "http://localhost:8000/uploadfile/";
-      calbtn.addEventListener("click", function (e) {
-        sendImage(e);
-      });
-      async function sendImage(e) {
-        e.preventDefault();
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-        const response = await fetch(apiUploadenpoint, {
-          method: "POST",
-          body: formData,
-        })
-          .then((response) => response.json())
-          .then((data) => console.log(data))
-          .catch((error) => console.error("Error:", error));
-      }
-      clrbtn.addEventListener("click", () => {
-        fileInput.file = "";
-        for (const img of preview.querySelectorAll("img")) {
-          URL.revokeObjectURL(img.src);
-          preview.removeChild(img);
-          removeImage();
-        }
-      });
-      fileInput.addEventListener("change", (e) => {
-        displayImage(e.target.files);
-      });
-      function addImage() {
-        uploadText.classList.remove("flex");
-        uploadText.classList.add("hidden");
-        preview.classList.remove("hidden");
-        preview.classList.add("flex");
-        clrbtn.removeAttribute("disabled");
-        calbtn.removeAttribute("disabled");
-      }
-      function removeImage() {
-        uploadText.classList.remove("hidden");
-        uploadText.classList.add("flex");
-        preview.classList.remove("flex");
-        preview.classList.add("hidden");
-        clrbtn.classList.remove("cursor-pointer");
-        calbtn.setAttribute("disabled", true);
-        clrbtn.removeAttribute("disabled");
-      }
-      function displayImage(files) {
-        for (const file of files) {
-          if (file.type.startsWith("image/")) {
-            const img = document.createElement("img");
-            img.src = URL.createObjectURL(file);
-            img.classList.add("object-cover");
-            addImage();
-            preview.appendChild(img);
-          }
-        }
-      }
-      function dropHandler(ev) {
-        ev.preventDefault();
-        const files = [...ev.dataTransfer.items]
-          .map((item) => item.getAsFile())
-          .filter((file) => file);
-        displayImage(files);
-      }
-      dropZone.addEventListener("drop", dropHandler);
-      window.addEventListener("drop", (e) => {
-        if ([...e.dataTransfer.files].some((item) => item.kind === "file")) {
-          e.preventDefault();
-        }
-      });
-      dropZone.addEventListener("dragover", (e) => {
-        const fileItems = [...e.dataTransfer.files].filter(
-          (item) => item.kind == "file"
-        );
-        if (fileItems.length > 0) {
-          e.preventDefault();
-          if (fileItems.some((item) => item.type.startsWith("image/"))) {
-            e.dataTransfer.dropEffect("copy");
-          } else {
-            e.dataTransfer.dropEffect("none");
-          }
-        }
-      });
-      window.addEventListener("dragover", (e) => {
-        const fileItems = [...e.dataTransfer.files].filter((item) =>
-          item.type.startsWith("image/")
-        );
-        if (fileItems.length > 0) {
-          e.preventDefault();
-          if (!dropZone.contains(e.target)) {
-            e.dataTransfer.dropEffect("none");
-          }
-        }
-      });
-    </script>
   </body>
 </html>
