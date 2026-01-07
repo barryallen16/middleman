@@ -5,17 +5,11 @@ from google import genai
 from google.genai import types
 import os 
 from dotenv import load_dotenv
-import pandas as pd 
 import json
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# files used 
-# 1.grade-points.jsonl
-# 2. merged_credits.jsonl
-
 
 load_dotenv()
 GEMINI_API_KEY=os.getenv('RESULTS_PROJ_APIKEY')
