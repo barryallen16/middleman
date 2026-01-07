@@ -27,7 +27,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   </head>
   <body class="font-mono bg-[#0e0e0e] scroll-smooth relative">
-    <div class="absolute w-full h-dvh bg-black/80 hidden" id="toast-danger">
+    <div class="absolute w-full h-dvh bg-black/80 hidden z-20" id="toast-danger">
       <div class="flex w-full justify-center items-center h-dvh">
         <div
           class="w-full max-w-xs p-4 mb-4 text-sm text-red-200 font-bold rounded-lg bg-red-600/50 border border-red-300"
@@ -139,6 +139,7 @@
           class="flex flex-col justify-center items-center text-center p-4"
         >
           <h3>Upload your results screenshot to calculate your gpa</h3>
+
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
@@ -156,9 +157,10 @@
               d="M16 9c-.702 0-1.053 0-1.306.169a1 1 0 0 0-.275.275c-.169.253-.169.604-.169 1.306V15a2.25 2.25 0 1 1-4.5 0v-4.25c0-.702 0-1.053-.169-1.306a1 1 0 0 0-.275-.275C9.053 9 8.702 9 8 9c-2.828 0-4.243 0-5.121.879C2 10.757 2 12.17 2 14.999v1c0 2.83 0 4.243.879 5.122C3.757 22 5.172 22 8 22h8c2.828 0 4.243 0 5.121-.879S22 18.828 22 16v-1c0-2.829 0-4.243-.879-5.121C20.243 9 18.828 9 16 9"
             />
           </svg>
+          <p class="text-xs text-white/40 mt-2">Accepted: PNG, JPG, JPEG (Max: 5MB)</p>
         </div>
         <ul id="preview" class="hidden list-none w-full h-full"></ul>
-        <input type="file" id="file-input" accept="image/*" class="hidden" />
+        <input type="file" id="file-input" accept="image/png,image/jpg,image/jpeg"  capture="environment"  class="hidden" />
       </div>
       <div class="flex gap-4">
         <button

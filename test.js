@@ -20,9 +20,11 @@ const closeToastBtn = document.getElementById("close-toast-btn");
 const goBackBtn = document.getElementById("go-back-btn");
 const gotoHome = document.getElementById("go-to-home");
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const apiUploadenpoint =
+  "https://middleman-ascc3ebqy-jayadithyas-projects-46b8b61e.vercel.app/";
 
 let globalResponse = [];
-multipleStudentResults = false;
+let multipleStudentResults = false;
 
 function handleMultipleResults() {
   data = globalResponse[selectRegno.value];
@@ -48,10 +50,10 @@ function dismissError() {
 function displayResult(data) {
   loadingScreen.classList.add("hidden");
   resultSection.classList.remove("hidden");
-
+  resultDisplay.innerHTML = "";
   studentRegno.textContent = data.student_regno;
   studentName.textContent = data.student_name;
-  resultDisplay.innerHTML += `<li class="w-[90%] bg-white rounded-lg flex px-4 py-2 justify-between gap-4 text-black border-3">
+  resultDisplay.innerHTML = `<li class="w-[90%] bg-white rounded-lg flex px-4 py-2 justify-between gap-4 text-black border-3">
                 <h2>Your GPA is:</h2>
                 <h1 class=" text-4xl font-semibold">
                   ${data.gpa}
@@ -77,7 +79,7 @@ function displayResult(data) {
 async function testing_response() {
   heroSection.classList.add("hidden");
   loadingScreen.classList.remove("hidden");
-  const response = await fetch("http://localhost:8000/return/", {
+  const response = await fetch(apiUploadenpoint + "return/", {
     method: "GET",
   });
   let data = await response.json();
@@ -189,7 +191,7 @@ fileInput.addEventListener("change", (e) => {
 });
 
 clrbtn.addEventListener("click", (ev) => {
-  for (img of preview.querySelectorAll("img")) {
+  for (const img of preview.querySelectorAll("img")) {
     URL.revokeObjectURL(img.src);
   }
   preview.innerHTML = "";
@@ -204,15 +206,15 @@ async function sendImage(e) {
   e.preventDefault();
   heroSection.classList.add("hidden");
   loadingScreen.classList.remove("hidden");
-  const apiUploadenpoint = "http://localhost:8000/calculateGpa/";
+  const endpoint = apiUploadenpoint + "calculateGpa/";
   const formData = new FormData();
   formData.append("file", fileInput.files[0]);
   try {
-    const response = await fetch(apiUploadenpoint, {
+    const response = await fetch(endpoint, {
       method: "POST",
       body: formData,
     });
-    if (!response.ok) throw new error("Upload failed");
+    if (!response.ok) throw new Error("Upload failed");
     const data = await response.json();
     loadingScreen.classList.add("hidden");
     console.log("Success: ", data);
@@ -229,8 +231,8 @@ async function sendImage(e) {
       });
       loadingScreen.classList.add("hidden");
       selectRegScreen.classList.remove("hidden");
-    } else {
-      displayResult(data);
+    } else if (data.length == 1) {
+      displayResult(data[0]);
     }
   } catch (error) {
     if (error instanceof TypeError) {
@@ -238,23 +240,30 @@ async function sendImage(e) {
     }
   }
 }
-calbtn.addEventListener("click", testing_response);
-sendImgBtn.addEventListener("click", sendImage);
+calbtn.addEventListener("click", sendImage);
+sendImgBtn.addEventListener("click", testing_response);
 viewGpa.addEventListener("click", handleMultipleResults);
 
 closeToastBtn.addEventListener("click", dismissError);
 retryBtn.addEventListener("click", () => {
   errorToast.classList.add("hidden");
-  sendImgBtn.click();
+  calbtn.click();
   ///
 });
 
 goBackBtn.addEventListener("click", () => {
   resultSection.classList.add("hidden");
-  selectRegScreen.classList.remove("hidden");
+  if (multipleStudentResults) {
+    selectRegScreen.classList.remove("hidden");
+  } else {
+    heroSection.classList.remove("hidden");
+  }
 });
 
 gotoHome.addEventListener("click", () => {
   selectRegScreen.classList.add("hidden");
   heroSection.classList.remove("hidden");
+  while (selectRegno.firstChild) {
+    selectRegno.removeChild(selectRegno.firstChild);
+  }
 });
