@@ -64,7 +64,7 @@ function displayResult(data) {
               class="w-[90%] bg-blue-700 rounded-lg flex px-4 py-2 justify-between gap-4 border-2 border-white"
             >
               <div><h2>${result.subject_code}</h2>
-              <h1 class="font-semibold">
+              <h1 class="font-bold">
                 ${result.subject_name}
                 </h1>
               </div>
