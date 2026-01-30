@@ -1,7 +1,7 @@
 // ============== CONFIGURATION ==============
 
 const CONFIG = {
-  API_BASE_URL: "https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app/",
+  API_BASE_URL: "https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app",
   MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
   ALLOWED_TYPES: ["image/png", "image/jpg", "image/jpeg"],
   REQUEST_TIMEOUT: 120000, // 2 minutes for OCR processing
