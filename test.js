@@ -1,269 +1,561 @@
-const studentName = document.getElementById("stdname");
-const studentRegno = document.getElementById("stdregno");
-const resultDisplay = document.getElementById("resultDisplay");
-const dropZone = document.getElementById("dropzone");
-const preview = document.getElementById("preview");
-const fileInput = document.getElementById("file-input");
-const clrbtn = document.getElementById("clear-btn");
-const calbtn = document.getElementById("cal-btn");
-const resultSection = document.getElementById("results");
-const heroSection = document.getElementById("hero");
-const loadingScreen = document.getElementById("loading-screen");
-const sendImgBtn = document.getElementById("send-img");
-const selectRegno = document.getElementById("select-regno");
-const viewGpa = document.getElementById("view-gpa");
-const selectRegScreen = document.getElementById("select-regscreen");
-const errorMessage = document.getElementById("error-message");
-const errorToast = document.getElementById("toast-danger");
-const retryBtn = document.getElementById("retry-btn");
-const closeToastBtn = document.getElementById("close-toast-btn");
-const goBackBtn = document.getElementById("go-back-btn");
-const gotoHome = document.getElementById("go-to-home");
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
-const apiUploadenpoint =
-  "https://middleman-ascc3ebqy-jayadithyas-projects-46b8b61e.vercel.app/";
+// ============== CONFIGURATION ==============
 
-let globalResponse = [];
-let multipleStudentResults = false;
+const CONFIG = {
+  API_BASE_URL: "https://middleman-ascc3ebqy-jayadithyas-projects-46b8b61e.vercel.app",
+  MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
+  ALLOWED_TYPES: ["image/png", "image/jpg", "image/jpeg"],
+  REQUEST_TIMEOUT: 120000, // 2 minutes for OCR processing
+};
 
-function handleMultipleResults() {
-  data = globalResponse[selectRegno.value];
-  displayResult(data);
-  selectRegScreen.classList.add("hidden");
-}
+// ============== ERROR CLASSES ==============
 
-function showErrorToast(message) {
-  errorMessage.textContent =
-    message || "An unexcepted error occured. Try again later.";
-  loadingScreen.classList.add("hidden");
-  heroSection.classList.remove("hidden");
-  errorToast.classList.remove("hidden");
-}
-
-function dismissError() {
-  errorToast.classList.add("hidden");
-  fileInput.value = "";
-  preview.classList.add("hidden");
-  document.getElementById("upload-text").classList.remove("hidden");
-}
-
-function displayResult(data) {
-  loadingScreen.classList.add("hidden");
-  resultSection.classList.remove("hidden");
-  resultDisplay.innerHTML = "";
-  studentRegno.textContent = data.student_regno;
-  studentName.textContent = data.student_name;
-  resultDisplay.innerHTML = `<li class="w-[90%] bg-white rounded-lg flex px-4 py-2 justify-between gap-4 text-black border-3">
-                <h2>Your GPA is:</h2>
-                <h1 class=" text-4xl font-semibold">
-                  ${data.gpa}
-                </h1>
-          </li>`;
-  data.results.forEach((result) => {
-    resultDisplay.innerHTML += `<li
-              class="w-[90%] bg-blue-700 rounded-lg flex px-4 py-2 justify-between gap-4 border-2 border-white"
-            >
-              <div><h2>${result.subject_code}</h2>
-              <h1 class="font-bold">
-                ${result.subject_name}
-                </h1>
-              </div>
-              <div class="text-center">
-              <h1 class="text-4xl font-bold">${result.grade}</h1>
-                <h2>Grade</h2>
-              </div>
-            </li>
-            `;
-  });
-}
-async function testing_response() {
-  heroSection.classList.add("hidden");
-  loadingScreen.classList.remove("hidden");
-  const response = await fetch(apiUploadenpoint + "return/", {
-    method: "GET",
-  });
-  let data = await response.json();
-  console.log(data);
-  if (data.length > 1) {
-    multipleStudentResults = true;
-    console.log("yes");
-    globalResponse = data;
-    data.forEach((stud, index) => {
-      const opt = document.createElement("option");
-      opt.innerHTML = stud.student_regno;
-      opt.value = index;
-      opt.classList.add("bg-white", "text-black", "text-sm");
-      selectRegno.appendChild(opt);
-    });
-    loadingScreen.classList.add("hidden");
-    selectRegScreen.classList.remove("hidden");
-  } else if (data.length == 1) {
-    displayResult(data[0]);
-  } else {
-    alert("error occured. try again.");
+class AppError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.name = "AppError";
   }
 }
 
-// testing_response();
-dropZone.addEventListener("click", () => fileInput.click());
-dropZone.addEventListener("drop", dropHandler);
-dropZone.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => {
-  if ([...e.dataTransfer.items].some((item) => item.type === "file")) {
-    e.preventDefault();
+class NetworkError extends AppError {
+  constructor(message = "Unable to connect to server") {
+    super("NETWORK_ERROR", message);
+    this.name = "NetworkError";
   }
-});
+}
 
-dropZone.addEventListener("dragover", (e) => {
-  const fileItems = [...e.dataTransfer.items].filter(
-    (item) => item.kind === "file"
-  );
-  if (fileItems.length > 0) {
-    e.preventDefault();
-    if (fileItems.some((item) => item.type.startsWith("image/"))) {
-      e.dataTransfer.dropEffect = "copy";
-    } else {
-      e.dataTransfer.dropEffect = "none";
-    }
+class ValidationError extends AppError {
+  constructor(message, details = {}) {
+    super("VALIDATION_ERROR", message, details);
+    this.name = "ValidationError";
   }
-});
+}
 
-window.addEventListener("dragover", (e) => {
-  const fileItems = [...e.dataTransfer.items].filter(
-    (item) => item.kind === "file"
-  );
-  if (fileItems.length > 0) {
-    e.preventDefault();
-    if (!dropZone.contains(e.target)) {
-      e.dataTransfer.dropEffect = "none";
-    }
+class APIError extends AppError {
+  constructor(code, message, details = {}, statusCode = 500) {
+    super(code, message, details);
+    this.statusCode = statusCode;
+    this.name = "APIError";
   }
-});
+}
 
-function displayImagePreview(files) {
-  if (!files || files.length === 0) {
-    return;
-  }
-  const file = files[0];
+// ============== ERROR MESSAGES MAP ==============
 
-  if (!file.type.startsWith("image/")) {
-    showErrorToast("Invalid file type. Upload an image(PNG, JPG, JPEG).");
-    fileInput.value = "";
-    return;
+const ERROR_MESSAGES = {
+  // Network errors
+  NETWORK_ERROR: "Couldn't reach the server. Check your internet connection and try again.",
+  TIMEOUT_ERROR: "Request timed out. The server is taking too long to respond.",
+  
+  // Validation errors
+  VALIDATION_ERROR: "Invalid input. Please check your file and try again.",
+  INVALID_FILE_TYPE: "Invalid file type. Please upload a PNG, JPG, or JPEG image.",
+  FILE_TOO_LARGE: "File is too large. Maximum allowed size is 5MB.",
+  EMPTY_FILE: "The uploaded file is empty.",
+  
+  // OCR errors
+  OCR_ERROR: "Couldn't read the image. Please upload a clearer screenshot.",
+  IMAGE_UNCLEAR: "The image is too blurry or unclear. Please upload a better quality image.",
+  
+  // Data errors
+  SUBJECT_NOT_FOUND: "Some subjects in your result weren't recognized. The database may not have all subjects yet.",
+  GRADE_NOT_FOUND: "Invalid grade detected in your results.",
+  NO_RESULTS: "No valid results found in the image. Please ensure you're uploading a results screenshot.",
+  INVALID_CREDITS: "Some subject credits are missing from our database.",
+  
+  // Server errors
+  INTERNAL_ERROR: "Something went wrong on our end. Please try again later.",
+  EXTERNAL_SERVICE_ERROR: "Our AI service is temporarily unavailable. Please try again in a few minutes.",
+  
+  // Default
+  UNKNOWN_ERROR: "An unexpected error occurred. Please try again.",
+};
+
+// ============== DOM ELEMENTS ==============
+
+const elements = {
+  studentName: document.getElementById("stdname"),
+  studentRegno: document.getElementById("stdregno"),
+  resultDisplay: document.getElementById("resultDisplay"),
+  dropZone: document.getElementById("dropzone"),
+  preview: document.getElementById("preview"),
+  fileInput: document.getElementById("file-input"),
+  clrBtn: document.getElementById("clear-btn"),
+  calBtn: document.getElementById("cal-btn"),
+  resultSection: document.getElementById("results"),
+  heroSection: document.getElementById("hero"),
+  loadingScreen: document.getElementById("loading-screen"),
+  selectRegno: document.getElementById("select-regno"),
+  viewGpa: document.getElementById("view-gpa"),
+  selectRegScreen: document.getElementById("select-regscreen"),
+  errorMessage: document.getElementById("error-message"),
+  errorToast: document.getElementById("toast-danger"),
+  retryBtn: document.getElementById("retry-btn"),
+  closeToastBtn: document.getElementById("close-toast-btn"),
+  goBackBtn: document.getElementById("go-back-btn"),
+  gotoHome: document.getElementById("go-to-home"),
+  uploadText: document.getElementById("upload-text"),
+};
+
+// ============== STATE ==============
+
+let state = {
+  globalResponse: [],
+  multipleStudentResults: false,
+  lastFile: null,
+};
+
+// ============== VALIDATION FUNCTIONS ==============
+
+function validateFile(file) {
+  if (!file) {
+    throw new ValidationError("No file selected");
   }
-  if (file.size > MAX_FILE_SIZE) {
-    const filesize = (file.size / (1024 * 1024)).toFixed(2);
-    showErrorToast(
-      `File too large (${filesize} MB). Maximum allowed size is 5 MB`
+
+  if (!CONFIG.ALLOWED_TYPES.includes(file.type)) {
+    throw new ValidationError(
+      ERROR_MESSAGES.INVALID_FILE_TYPE,
+      { receivedType: file.type, allowedTypes: CONFIG.ALLOWED_TYPES }
     );
-    fileInput.value = "";
-    return;
   }
 
-  preview.innerHTML = "";
-  const li = document.createElement("li");
-  const img = document.createElement("img");
-  document.getElementById("upload-text").classList.add("hidden");
-  img.src = URL.createObjectURL(file);
-
-  preview.classList.remove("hidden");
-  img.classList.add("object-fill");
-  li.classList.add("w-full", "h-full");
-  img.classList.add("w-full", "h-full", "object-cover", "rounded-lg");
-  li.appendChild(img);
-  preview.appendChild(li);
-
-  calbtn.disabled = false;
-  clrbtn.disabled = false;
-}
-
-function dropHandler(ev) {
-  ev.preventDefault();
-  const fileItems = [...ev.dataTransfer.items]
-    .map((item) => item.getAsFile())
-    .filter((file) => file);
-  displayImagePreview(fileItems);
-}
-
-fileInput.addEventListener("change", (e) => {
-  fileInput.files = e.target.files;
-  displayImagePreview(e.target.files);
-});
-
-clrbtn.addEventListener("click", (ev) => {
-  for (const img of preview.querySelectorAll("img")) {
-    URL.revokeObjectURL(img.src);
+  if (file.size === 0) {
+    throw new ValidationError(ERROR_MESSAGES.EMPTY_FILE);
   }
-  preview.innerHTML = "";
-  preview.classList.add("hidden");
-  document.getElementById("upload-text").classList.remove("hidden");
-  fileInput.value = "";
-  calbtn.disabled = true;
-  clrbtn.disabled = true;
-});
 
-async function sendImage(e) {
-  e.preventDefault();
-  heroSection.classList.add("hidden");
-  loadingScreen.classList.remove("hidden");
-  const endpoint = apiUploadenpoint + "calculateGpa/";
-  const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
+  if (file.size > CONFIG.MAX_FILE_SIZE) {
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    throw new ValidationError(
+      `File too large (${sizeMB}MB). Maximum allowed: 5MB`,
+      { fileSize: sizeMB, maxSize: 5 }
+    );
+  }
+
+  return true;
+}
+
+// ============== API FUNCTIONS ==============
+
+async function fetchWithTimeout(url, options, timeout = CONFIG.REQUEST_TIMEOUT) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === "AbortError") {
+      throw new NetworkError(ERROR_MESSAGES.TIMEOUT_ERROR);
+    }
+    throw error;
+  }
+}
+
+async function parseAPIResponse(response) {
+  const contentType = response.headers.get("content-type");
+  
+  if (!contentType || !contentType.includes("application/json")) {
+    throw new APIError(
+      "INVALID_RESPONSE",
+      "Server returned an invalid response",
+      {},
+      response.status
+    );
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+async function handleAPIError(response) {
+  try {
+    const errorData = await parseAPIResponse(response);
+    
+    if (errorData.error) {
+      const { code, message, details } = errorData.error;
+      const userMessage = ERROR_MESSAGES[code] || message || ERROR_MESSAGES.UNKNOWN_ERROR;
+      throw new APIError(code, userMessage, details, response.status);
+    }
+    
+    throw new APIError(
+      "UNKNOWN_ERROR",
+      ERROR_MESSAGES.UNKNOWN_ERROR,
+      {},
+      response.status
+    );
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+    
+    // Fallback for non-JSON error responses
+    const statusMessages = {
+      400: "Bad request. Please check your input.",
+      401: "Unauthorized. Please refresh and try again.",
+      403: "Access forbidden.",
+      404: "Service not found.",
+      422: "Could not process the image.",
+      429: "Too many requests. Please wait a moment.",
+      500: "Server error. Please try again later.",
+      502: "Service temporarily unavailable.",
+      503: "Service is overloaded. Please try again later.",
+    };
+    
+    throw new APIError(
+      "HTTP_ERROR",
+      statusMessages[response.status] || `Server error (${response.status})`,
+      {},
+      response.status
+    );
+  }
+}
+
+async function uploadImage(file) {
+  const endpoint = `${CONFIG.API_BASE_URL}/calculateGpa/`;
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
       body: formData,
     });
-    if (!response.ok) throw new Error("Upload failed");
-    const data = await response.json();
-    loadingScreen.classList.add("hidden");
-    console.log("Success: ", data);
-    if (data.length > 1) {
-      multipleStudentResults = true;
-      console.log("yes");
-      globalResponse = data;
-      data.forEach((stud, index) => {
-        const opt = document.createElement("option");
-        opt.innerHTML = stud.student_regno;
-        opt.value = index;
-        opt.classList.add("bg-white", "text-black", "text-sm");
-        selectRegno.appendChild(opt);
-      });
-      loadingScreen.classList.add("hidden");
-      selectRegScreen.classList.remove("hidden");
-    } else if (data.length == 1) {
-      displayResult(data[0]);
+
+    if (!response.ok) {
+      await handleAPIError(response);
     }
+
+    const data = await parseAPIResponse(response);
+    
+    if (!data.success) {
+      const error = data.error || {};
+      throw new APIError(
+        error.code || "UNKNOWN_ERROR",
+        ERROR_MESSAGES[error.code] || error.message || ERROR_MESSAGES.UNKNOWN_ERROR,
+        error.details || {},
+        200
+      );
+    }
+
+    return data.data;
   } catch (error) {
-    if (error instanceof TypeError) {
-      showErrorToast("Couldn't reach the server. Try again later.");
+    // Re-throw known errors
+    if (error instanceof AppError) {
+      throw error;
+    }
+    
+    // Handle network errors
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      throw new NetworkError();
+    }
+    
+    // Handle other errors
+    console.error("Unexpected error:", error);
+    throw new AppError("UNKNOWN_ERROR", ERROR_MESSAGES.UNKNOWN_ERROR);
+  }
+}
+
+// ============== UI FUNCTIONS ==============
+
+function showLoading() {
+  elements.heroSection.classList.add("hidden");
+  elements.selectRegScreen.classList.add("hidden");
+  elements.resultSection.classList.add("hidden");
+  elements.loadingScreen.classList.remove("hidden");
+}
+
+function hideLoading() {
+  elements.loadingScreen.classList.add("hidden");
+}
+
+function showError(error) {
+  hideLoading();
+  elements.heroSection.classList.remove("hidden");
+  
+  let message = ERROR_MESSAGES.UNKNOWN_ERROR;
+  
+  if (error instanceof AppError) {
+    message = error.message;
+  } else if (error instanceof Error) {
+    message = error.message || ERROR_MESSAGES.UNKNOWN_ERROR;
+  }
+  
+  elements.errorMessage.textContent = message;
+  elements.errorToast.classList.remove("hidden");
+  
+  console.error("Error details:", {
+    type: error.constructor.name,
+    code: error.code,
+    message: error.message,
+    details: error.details,
+  });
+}
+
+function dismissError() {
+  elements.errorToast.classList.add("hidden");
+}
+
+function resetUpload() {
+  // Revoke object URLs
+  elements.preview.querySelectorAll("img").forEach((img) => {
+    URL.revokeObjectURL(img.src);
+  });
+  
+  elements.preview.innerHTML = "";
+  elements.preview.classList.add("hidden");
+  elements.uploadText.classList.remove("hidden");
+  elements.fileInput.value = "";
+  elements.calBtn.disabled = true;
+  elements.clrBtn.disabled = true;
+  state.lastFile = null;
+}
+
+function showHero() {
+  hideLoading();
+  elements.selectRegScreen.classList.add("hidden");
+  elements.resultSection.classList.add("hidden");
+  elements.heroSection.classList.remove("hidden");
+  
+  // Clear select options
+  while (elements.selectRegno.firstChild) {
+    elements.selectRegno.removeChild(elements.selectRegno.firstChild);
+  }
+  
+  state.globalResponse = [];
+  state.multipleStudentResults = false;
+}
+
+function showSelectScreen(data) {
+  hideLoading();
+  state.globalResponse = data;
+  state.multipleStudentResults = true;
+  
+  // Clear existing options
+  elements.selectRegno.innerHTML = "";
+  
+  // Add options
+  data.forEach((student, index) => {
+    const option = document.createElement("option");
+    option.textContent = `${student.student_regno} - ${student.student_name}`;
+    option.value = index;
+    option.classList.add("bg-white", "text-black", "text-sm");
+    elements.selectRegno.appendChild(option);
+  });
+  
+  elements.selectRegScreen.classList.remove("hidden");
+}
+
+function displayResult(data) {
+  hideLoading();
+  elements.heroSection.classList.add("hidden");
+  elements.selectRegScreen.classList.add("hidden");
+  elements.resultSection.classList.remove("hidden");
+  
+  elements.studentRegno.textContent = data.student_regno;
+  elements.studentName.textContent = data.student_name;
+  
+  // Build results HTML
+  let resultsHTML = `
+    <li class="w-[90%] bg-white rounded-lg flex px-4 py-2 justify-between gap-4 text-black border-3">
+      <h2>Your GPA is:</h2>
+      <h1 class="text-4xl font-semibold">${data.gpa}</h1>
+    </li>
+  `;
+  
+  data.results.forEach((result) => {
+    resultsHTML += `
+      <li class="w-[90%] bg-blue-700 rounded-lg flex px-4 py-2 justify-between gap-4 border-2 border-white">
+        <div>
+          <h2>${result.subject_code}</h2>
+          <h1 class="font-bold">${result.subject_name}</h1>
+        </div>
+        <div class="text-center">
+          <h1 class="text-4xl font-bold">${result.grade}</h1>
+          <h2>Grade</h2>
+        </div>
+      </li>
+    `;
+  });
+  
+  elements.resultDisplay.innerHTML = resultsHTML;
+}
+
+function displayImagePreview(files) {
+  if (!files || files.length === 0) return;
+  
+  const file = files[0];
+  
+  try {
+    validateFile(file);
+  } catch (error) {
+    showError(error);
+    resetUpload();
+    return;
+  }
+  
+  state.lastFile = file;
+  
+  // Clear previous preview
+  elements.preview.innerHTML = "";
+  
+  const li = document.createElement("li");
+  const img = document.createElement("img");
+  
+  elements.uploadText.classList.add("hidden");
+  img.src = URL.createObjectURL(file);
+  
+  elements.preview.classList.remove("hidden");
+  li.classList.add("w-full", "h-full");
+  img.classList.add("w-full", "h-full", "object-cover", "rounded-lg");
+  
+  li.appendChild(img);
+  elements.preview.appendChild(li);
+  
+  elements.calBtn.disabled = false;
+  elements.clrBtn.disabled = false;
+}
+
+// ============== EVENT HANDLERS ==============
+
+async function handleCalculateClick(e) {
+  e.preventDefault();
+  
+  const file = elements.fileInput.files[0];
+  
+  if (!file) {
+    showError(new ValidationError("Please select an image first"));
+    return;
+  }
+  
+  try {
+    validateFile(file);
+    showLoading();
+    
+    const results = await uploadImage(file);
+    
+    if (!results || results.length === 0) {
+      throw new APIError("NO_RESULTS", ERROR_MESSAGES.NO_RESULTS);
+    }
+    
+    // Store in localStorage
+    if (results.length > 1) {
+      localStorage.setItem("multi_result", JSON.stringify(results));
+      showSelectScreen(results);
+    } else {
+      localStorage.setItem("single_result", JSON.stringify(results[0]));
+      displayResult(results[0]);
+    }
+    
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function handleViewGPA() {
+  const selectedIndex = elements.selectRegno.value;
+  const selectedStudent = state.globalResponse[selectedIndex];
+  
+  if (selectedStudent) {
+    localStorage.setItem("single_result", JSON.stringify(selectedStudent));
+    displayResult(selectedStudent);
+  }
+}
+
+function handleGoBack() {
+  elements.resultSection.classList.add("hidden");
+  
+  if (state.multipleStudentResults) {
+    elements.selectRegScreen.classList.remove("hidden");
+  } else {
+    showHero();
+  }
+}
+
+function handleRetry() {
+  dismissError();
+  
+  if (state.lastFile) {
+    elements.calBtn.click();
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  const files = [...e.dataTransfer.items]
+    .map((item) => item.getAsFile())
+    .filter((file) => file);
+  displayImagePreview(files);
+}
+
+// ============== INITIALIZATION ==============
+
+function initializeEventListeners() {
+  // Drag and drop
+  elements.dropZone.addEventListener("click", () => elements.fileInput.click());
+  elements.dropZone.addEventListener("drop", handleDrop);
+  elements.dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    const fileItems = [...e.dataTransfer.items].filter((item) => item.kind === "file");
+    if (fileItems.length > 0) {
+      e.dataTransfer.dropEffect = fileItems.some((item) => 
+        item.type.startsWith("image/")
+      ) ? "copy" : "none";
+    }
+  });
+  
+  window.addEventListener("dragover", (e) => {
+    const fileItems = [...e.dataTransfer.items].filter((item) => item.kind === "file");
+    if (fileItems.length > 0) {
+      e.preventDefault();
+      if (!elements.dropZone.contains(e.target)) {
+        e.dataTransfer.dropEffect = "none";
+      }
+    }
+  });
+  
+  window.addEventListener("drop", (e) => {
+    if ([...e.dataTransfer.items].some((item) => item.kind === "file")) {
+      e.preventDefault();
+    }
+  });
+  
+  // File input
+  elements.fileInput.addEventListener("change", (e) => {
+    displayImagePreview(e.target.files);
+  });
+  
+  // Buttons
+  elements.clrBtn.addEventListener("click", resetUpload);
+  elements.calBtn.addEventListener("click", handleCalculateClick);
+  elements.viewGpa.addEventListener("click", handleViewGPA);
+  elements.goBackBtn.addEventListener("click", handleGoBack);
+  elements.gotoHome.addEventListener("click", showHero);
+  elements.retryBtn.addEventListener("click", handleRetry);
+  elements.closeToastBtn.addEventListener("click", dismissError);
+}
+
+function checkStoredResults() {
+  const singleResult = localStorage.getItem("single_result");
+  
+  if (singleResult) {
+    try {
+      const parsedResult = JSON.parse(singleResult);
+      console.log("Found stored single result:", parsedResult);
+      // Optionally auto-display: displayResult(parsedResult);
+    } catch (e) {
+      console.error("Failed to parse stored result:", e);
+      localStorage.removeItem("single_result");
     }
   }
 }
-calbtn.addEventListener("click", sendImage);
-sendImgBtn.addEventListener("click", testing_response);
-viewGpa.addEventListener("click", handleMultipleResults);
 
-closeToastBtn.addEventListener("click", dismissError);
-retryBtn.addEventListener("click", () => {
-  errorToast.classList.add("hidden");
-  calbtn.click();
-  ///
-});
-
-goBackBtn.addEventListener("click", () => {
-  resultSection.classList.add("hidden");
-  if (multipleStudentResults) {
-    selectRegScreen.classList.remove("hidden");
-  } else {
-    heroSection.classList.remove("hidden");
-  }
-});
-
-gotoHome.addEventListener("click", () => {
-  selectRegScreen.classList.add("hidden");
-  heroSection.classList.remove("hidden");
-  while (selectRegno.firstChild) {
-    selectRegno.removeChild(selectRegno.firstChild);
-  }
+// Initialize on DOM ready
+document.addEventListener("DOMContentLoaded", () => {
+  initializeEventListeners();
+  checkStoredResults();
 });

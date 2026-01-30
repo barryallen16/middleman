@@ -1,1 +1,1 @@
-- [x] 
+- [x] make errors  from backend properly. and handle them correctly with the error toast.
