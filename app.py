@@ -256,9 +256,12 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                 # Check if subject exists in metadata
                 if sub_code not in subject_metadata:
                     logger.warning(f"Subject '{sub_code}' not found in metadata")
-                    skipped_subjects.append(sub_code)
-                    continue
-                
+                    if 'O' in sub_code and 'O' in sub_code[-3] and sub_code[:-3] + '0' + sub_code[-2:] in subject_metadata:
+                        sub_code = sub_code[:-3] + '0' + sub_code[-2:]
+                    else:
+                        skipped_subjects.append(sub_code)
+                        continue
+                    
                 # Check if grade exists
                 if not grade or grade not in grade_points_map:
                     logger.warning(f"Grade '{grade}' not found for subject '{sub_code}'")
