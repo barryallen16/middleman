@@ -18,9 +18,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 load_dotenv()
-GEMINI_API_KEY = os.getenv('RESULTS_PROJ_APIKEY')
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+# ============== API KEYS CONFIGURATION ==============
+
+# Load multiple Gemini API keys from environment (comma-separated)
+# Format in .env: GEMINI_API_KEYS=key1,key2,key3
+GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS', '')
+GEMINI_API_KEYS = [key.strip() for key in GEMINI_API_KEYS_STR.split(',') if key.strip()]
+
+# Fallback: Also check for single key (backward compatibility)
+SINGLE_GEMINI_KEY = os.getenv('RESULTS_PROJ_APIKEY')
+if SINGLE_GEMINI_KEY and SINGLE_GEMINI_KEY not in GEMINI_API_KEYS:
+    GEMINI_API_KEYS.insert(0, SINGLE_GEMINI_KEY)
+
+logger.info(f"Loaded {len(GEMINI_API_KEYS)} Gemini API keys")
 
 app = FastAPI()
 
@@ -29,7 +40,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True
+    allow_credentials=False
 )
 
 # ============== CUSTOM EXCEPTIONS ==============
@@ -81,6 +92,14 @@ class ExternalServiceError(AppException):
             f"Failed to communicate with {service}",
             502,
             {"service": service, "original_error": original_error}
+        )
+
+class AllKeysExhaustedError(AppException):
+    def __init__(self):
+        super().__init__(
+            "ALL_KEYS_EXHAUSTED",
+            "All API keys have been exhausted. Please try again later.",
+            503
         )
 
 class InvalidCreditsError(AppException):
@@ -157,7 +176,6 @@ def load_static_data():
         grade_file = os.path.join(static_dir, "grade-points.jsonl")
         credits_file = os.path.join(static_dir, "merged_credits.jsonl")
         
-        # Check if files exist
         if not os.path.exists(grade_file):
             logger.error(f"Grade points file not found: {grade_file}")
             return
@@ -171,7 +189,7 @@ def load_static_data():
                     data = json.loads(line.strip())
                     if 'letter_grade' in data and 'grade_points' in data:
                         grade_points_map[data['letter_grade']] = data['grade_points']
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     logger.warning(f"Skipping invalid JSON at line {line_num} in grade-points.jsonl")
         
         with open(credits_file, 'r', encoding="utf-8") as in_file:
@@ -219,12 +237,10 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
         try:
             student_data = json.loads(line)
             
-            # Check for OCR error response
             if "error" in student_data:
                 error_msg = student_data.get("message", "Image could not be processed")
                 raise OCRError(error_msg)
             
-            # Validate required fields
             if "student_regno" not in student_data:
                 logger.warning(f"Missing student_regno in: {line[:50]}...")
                 continue
@@ -248,12 +264,10 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                 sub_code = data.get('subject_code')
                 grade = data.get('grade')
                 
-                # Validate subject code exists
                 if not sub_code:
                     logger.warning("Empty subject code found, skipping...")
                     continue
                 
-                # Check if subject exists in metadata
                 if sub_code not in subject_metadata:
                     logger.warning(f"Subject '{sub_code}' not found in metadata")
                     if 'O' in sub_code and 'O' in sub_code[-3] and sub_code[:-3] + '0' + sub_code[-2:] in subject_metadata:
@@ -262,14 +276,12 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                         skipped_subjects.append(sub_code)
                         continue
                     
-                # Check if grade exists
                 if not grade or grade not in grade_points_map:
                     logger.warning(f"Grade '{grade}' not found for subject '{sub_code}'")
                     continue
                 
                 sub_info = subject_metadata[sub_code]
                 
-                # Validate credits
                 credits = sub_info.get("credits")
                 if credits is None or credits == 0:
                     logger.warning(f"Invalid credits for subject '{sub_code}'")
@@ -285,7 +297,6 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                 total_credits += credits
                 current_dict["results"].append(results_dict)
             
-            # Calculate GPA
             if total_credits > 0:
                 gpa = round(acq_credits / total_credits, 2)
             else:
@@ -293,7 +304,6 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
             
             current_dict["gpa"] = gpa
             
-            # Only add if we have at least some results
             if current_dict["results"]:
                 final_list.append(current_dict)
             else:
@@ -303,7 +313,7 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
             logger.error(f"Failed to parse JSON: {line[:100]}...")
             continue
         except OCRError:
-            raise  # Re-raise OCR errors
+            raise
         except Exception as e:
             logger.exception(f"Error processing student data: {e}")
             continue
@@ -315,49 +325,86 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
     
     return final_list
 
+# ============== OCR PROMPT ==============
+
+OCR_PROMPT = """
+**System Role:**
+You are a specialized OCR extraction engine designed to process academic result sheets. Your output must be strictly valid machine-readable code.
+
+**Task:**
+Extract student registration details and examination results from the provided image.
+
+**Output Format Rules:**
+1.  **Format:** Return the data in **JSONL (JSON Lines)** format.
+2.  **Structure:** Each line must represent a **single student** and contain all their subject results.
+3.  **No Markdown:** Do not use markdown blocks (like ```json). Just return the raw text lines.
+4.  **Schema:** Follow this exact JSON structure for every line:
+    {"student_regno": "STRING", "student_name": "STRING", "results": [{"subject_code": "STRING", "grade": "STRING"}, {"subject_code": "STRING", "grade": "STRING"}]}
+
+**Extraction Rules:**
+1.  **Distinguish Characters:** Be extremely careful with 'O' (letter) versus '0' (zero).
+2.  **Index 6 Correction:**  If you detect the number '1' at index 6 of any `subject_code, you must correct it to 'I'.
+3.  **Multiple Students:** If the image lists multiple students, generate one JSON line per student.
+4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object on a single line:
+    {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
+"""
+
+# ============== GEMINI OCR WITH KEY ROTATION ==============
+
 def do_ocr(image_bytes: bytes) -> str:
-    prompt = """
-    **System Role:**
-    You are a specialized OCR extraction engine designed to process academic result sheets. Your output must be strictly valid machine-readable code.
-
-    **Task:**
-    Extract student registration details and examination results from the provided image.
-
-    **Output Format Rules:**
-    1.  **Format:** Return the data in **JSONL (JSON Lines)** format.
-    2.  **Structure:** Each line must represent a **single student** and contain all their subject results.
-    3.  **No Markdown:** Do not use markdown blocks (like ```json). Just return the raw text lines.
-    4.  **Schema:** Follow this exact JSON structure for every line:
-        {"student_regno": "STRING", "student_name": "STRING", "results": [{"subject_code": "STRING", "grade": "STRING"}, {"subject_code": "STRING", "grade": "STRING"}]}
-
-    **Extraction Rules:**
-    1.  **Distinguish Characters:** Be extremely careful with 'O' (letter) versus '0' (zero).
-    2.  **Index 6 Correction:**  If you detect the number '1' at index 6 of any `subject_code, you must correct it to 'I'.
-    3.  **Multiple Students:** If the image lists multiple students, generate one JSON line per student.
-    4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object on a single line:
-        {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
     """
+    Perform OCR using Gemini API with automatic key rotation.
+    If one key fails (rate limit, quota exceeded), try the next one.
+    """
+    if not GEMINI_API_KEYS:
+        raise ExternalServiceError("Gemini AI", "No API keys configured")
     
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                prompt
-            ]
-        )
-        
-        if not response.text:
-            raise OCRError("No text was extracted from the image")
-        
-        logger.info(f"OCR Response: {response.text[:200]}...")
-        return response.text
-        
-    except OCRError:
-        raise
-    except Exception as e:
-        logger.exception(f"Gemini API error: {e}")
-        raise ExternalServiceError("Gemini AI", str(e))
+    last_error = None
+    
+    for i, api_key in enumerate(GEMINI_API_KEYS):
+        try:
+            logger.info(f"Trying Gemini API key {i + 1}/{len(GEMINI_API_KEYS)}")
+            
+            # Create client with current key
+            client = genai.Client(api_key=api_key)
+            
+            # Make the API call
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                    OCR_PROMPT
+                ]
+            )
+            
+            if not response.text:
+                raise OCRError("No text was extracted from the image")
+            
+            logger.info(f"Gemini OCR successful with key {i + 1}")
+            logger.info(f"OCR Response: {response.text[:200]}...")
+            return response.text
+            
+        except OCRError:
+            # OCR errors (like unclear image) should not trigger key rotation
+            raise
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            
+            # Check if it's a rate limit or quota error (should try next key)
+            if any(keyword in error_str for keyword in ['rate', 'limit', 'quota', '429', '503', 'exhausted', 'exceeded']):
+                logger.warning(f"Gemini API key {i + 1} rate limited/exhausted: {e}")
+                last_error = e
+                continue
+            
+            # For other errors, also try next key
+            logger.warning(f"Gemini API key {i + 1} failed: {e}")
+            last_error = e
+            continue
+    
+    # All keys exhausted
+    logger.error(f"All {len(GEMINI_API_KEYS)} Gemini API keys exhausted")
+    raise AllKeysExhaustedError()
 
 # ============== VALIDATION HELPERS ==============
 
@@ -407,7 +454,8 @@ def health_check():
     return success_response({
         "status": "healthy",
         "grades_loaded": len(grade_points_map),
-        "subjects_loaded": len(subject_metadata)
+        "subjects_loaded": len(subject_metadata),
+        "api_keys_configured": len(GEMINI_API_KEYS)
     })
 
 @app.post("/calculateGpa/")
@@ -418,7 +466,7 @@ async def gpa_calculation(file: UploadFile = File(...)):
     # Step 2: Read and validate file size
     image_bytes = await validate_file_size(file)
     
-    # Step 3: Perform OCR
+    # Step 3: Perform OCR (with automatic key rotation)
     ocr_text = do_ocr(image_bytes)
     
     # Step 4: Calculate GPA
@@ -436,12 +484,13 @@ def return_jsonlist():
     results = calculate_gpa_logic(string_)
     return success_response(results)
 
-# Debug endpoint (remove in production)
 @app.get("/debug/metadata")
 def debug_metadata():
+    """Debug endpoint - remove in production"""
     return success_response({
         "grade_points_count": len(grade_points_map),
         "subjects_count": len(subject_metadata),
         "sample_grades": dict(list(grade_points_map.items())[:5]),
-        "sample_subjects": dict(list(subject_metadata.items())[:5])
+        "sample_subjects": dict(list(subject_metadata.items())[:5]),
+        "api_keys_count": len(GEMINI_API_KEYS)
     })
