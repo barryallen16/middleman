@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from pydantic import BaseModel
 import httpx
-import asyncio
 import base64
 import os
 import hashlib
@@ -41,18 +40,24 @@ logger.info(f"Loaded {len(GROQ_API_KEYS)} API keys")
 # Turso natively supports SQL over HTTP via POST /v2/pipeline — no SDK needed.
 # We call it directly with httpx (already a FastAPI/Starlette dependency).
 #
-# FIX: All Turso calls now use httpx.AsyncClient so they don't block the
-# FastAPI event loop. Sync wrappers (turso_execute / turso_batch) are
-# replaced with async versions (aturso_execute / aturso_batch).
-# init_db() still uses the sync client because it runs at startup, outside
-# of any async context.
+# API shape:
+#   POST {TURSO_HTTP_URL}/v2/pipeline
+#   Authorization: Bearer {TURSO_AUTH_TOKEN}
+#   Body: { "requests": [ {"type":"execute","stmt":{"sql":"...","args":[...]}},
+#                         {"type":"close"} ] }
+#
+# Each arg must be typed: {"type": "text"|"integer"|"float"|"null", "value": "..."}
+# Values are always strings in the JSON to avoid float precision loss.
 
-TURSO_URL        = os.getenv("TURSO_DATABASE_URL", "")
+TURSO_URL        = os.getenv("TURSO_DATABASE_URL", "")   # libsql://xxx.turso.io  OR  https://xxx.turso.io
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN",  "")
 
 
 def _turso_http_url() -> str:
-    """Convert the Turso database URL to an HTTPS pipeline endpoint."""
+    """
+    Convert the Turso database URL to an HTTPS pipeline endpoint.
+    Handles both libsql:// and https:// URL schemes.
+    """
     url = TURSO_URL.strip()
     if url.startswith("libsql://"):
         url = "https://" + url[len("libsql://"):]
@@ -73,8 +78,73 @@ def _typed_arg(value: Any) -> Dict:
     return {"type": "text", "value": str(value)}
 
 
-def _build_pipeline_payload(statements: List[Dict]) -> Dict:
-    """Build the pipeline request body from a list of {sql, args} dicts."""
+def turso_execute(
+    sql: str,
+    args: Optional[List] = None,
+    *,
+    raise_on_db_error: bool = True
+) -> Dict:
+    """
+    Execute a single SQL statement over Turso's HTTP pipeline API.
+
+    Returns the raw `result` dict:
+        { "cols": [...], "rows": [...], "affected_row_count": N, ... }
+
+    Raises ExternalServiceError on HTTP/network failure.
+    """
+    if not TURSO_URL or not TURSO_AUTH_TOKEN:
+        raise ExternalServiceError("Database", "TURSO_DATABASE_URL or TURSO_AUTH_TOKEN missing")
+
+    stmt: Dict[str, Any] = {"sql": sql}
+    if args:
+        stmt["args"] = [_typed_arg(a) for a in args]
+
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": stmt},
+            {"type": "close"},
+        ]
+    }
+
+    try:
+        resp = httpx.post(
+            _turso_http_url(),
+            headers={
+                "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+                "Content-Type":  "application/json",
+            },
+            json=payload,
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise ExternalServiceError("Database", str(e)) from e
+    except httpx.RequestError as e:
+        raise ExternalServiceError("Database", str(e)) from e
+
+    body = resp.json()
+    first = body["results"][0]
+
+    if first["type"] == "error":
+        msg = first.get("error", {}).get("message", "Unknown DB error")
+        if raise_on_db_error:
+            raise ExternalServiceError("Database", msg)
+        logger.error("Turso error: %s | sql=%s", msg, sql[:80])
+        return {}
+
+    return first["response"]["result"]
+
+
+def turso_batch(statements: List[Dict]) -> List[Dict]:
+    """
+    Execute multiple SQL statements in a single HTTP round-trip (pipeline/transaction).
+
+    Each item in `statements` must be {"sql": str, "args": list | None}.
+    Returns a list of result dicts in the same order.
+    """
+    if not TURSO_URL or not TURSO_AUTH_TOKEN:
+        raise ExternalServiceError("Database", "TURSO_DATABASE_URL or TURSO_AUTH_TOKEN missing")
+
     requests = []
     for s in statements:
         stmt: Dict[str, Any] = {"sql": s["sql"]}
@@ -82,105 +152,28 @@ def _build_pipeline_payload(statements: List[Dict]) -> Dict:
             stmt["args"] = [_typed_arg(a) for a in s["args"]]
         requests.append({"type": "execute", "stmt": stmt})
     requests.append({"type": "close"})
-    return {"requests": requests}
 
+    try:
+        resp = httpx.post(
+            _turso_http_url(),
+            headers={
+                "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+                "Content-Type":  "application/json",
+            },
+            json={"requests": requests},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise ExternalServiceError("Database", str(e)) from e
+    except httpx.RequestError as e:
+        raise ExternalServiceError("Database", str(e)) from e
 
-def _extract_results(body: Dict) -> List[Dict]:
-    """Pull the result dicts out of a pipeline response body."""
     results = []
-    for item in body.get("results", []):
-        if item.get("type") == "ok" and item["response"].get("type") == "execute":
+    for item in resp.json()["results"]:
+        if item["type"] == "ok" and item["response"]["type"] == "execute":
             results.append(item["response"]["result"])
-        elif item.get("type") == "error":
-            msg = item.get("error", {}).get("message", "Unknown DB error")
-            logger.error("Turso pipeline error: %s", msg)
-            raise ExternalServiceError("Database", msg)
     return results
-
-
-# ── Sync versions (startup / non-async contexts only) ──────────────────────
-
-def turso_execute_sync(sql: str, args: Optional[List] = None) -> Dict:
-    if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise ExternalServiceError("Database", "Turso credentials missing")
-    payload = _build_pipeline_payload([{"sql": sql, "args": args or []}])
-    try:
-        resp = httpx.post(
-            _turso_http_url(),
-            headers={"Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
-                     "Content-Type": "application/json"},
-            json=payload, timeout=10.0,
-        )
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    except httpx.RequestError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    results = _extract_results(resp.json())
-    return results[0] if results else {}
-
-
-def turso_batch_sync(statements: List[Dict]) -> List[Dict]:
-    if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise ExternalServiceError("Database", "Turso credentials missing")
-    payload = _build_pipeline_payload(statements)
-    try:
-        resp = httpx.post(
-            _turso_http_url(),
-            headers={"Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
-                     "Content-Type": "application/json"},
-            json=payload, timeout=15.0,
-        )
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    except httpx.RequestError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    return _extract_results(resp.json())
-
-
-# ── Async versions (used inside FastAPI route handlers) ────────────────────
-
-# FIX: async Turso helpers prevent blocking the event loop during DB I/O
-async def aturso_execute(sql: str, args: Optional[List] = None) -> Dict:
-    if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise ExternalServiceError("Database", "Turso credentials missing")
-    payload = _build_pipeline_payload([{"sql": sql, "args": args or []}])
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                _turso_http_url(),
-                headers={"Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
-                         "Content-Type": "application/json"},
-                json=payload,
-            )
-            resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    except httpx.RequestError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    results = _extract_results(resp.json())
-    return results[0] if results else {}
-
-
-async def aturso_batch(statements: List[Dict]) -> List[Dict]:
-    if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise ExternalServiceError("Database", "Turso credentials missing")
-    payload = _build_pipeline_payload(statements)
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                _turso_http_url(),
-                headers={"Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
-                         "Content-Type": "application/json"},
-                json=payload,
-            )
-            resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    except httpx.RequestError as e:
-        raise ExternalServiceError("Database", str(e)) from e
-    return _extract_results(resp.json())
 
 
 def _rows_as_dicts(result: Dict) -> List[Dict]:
@@ -200,7 +193,7 @@ def init_db():
         logger.warning("Skipping DB init: Turso credentials missing.")
         return
     try:
-        turso_batch_sync([
+        turso_batch([
             {"sql": """
                 CREATE TABLE IF NOT EXISTS students (
                     regno           TEXT PRIMARY KEY,
@@ -351,30 +344,14 @@ init_db()
 # ============== HELPERS ==============
 
 def clean_llm_json_response(text: str) -> str:
-    """
-    Strip markdown code fences that some models wrap around their output.
-    Handles both triple-backtick blocks (```json ... ``` or ``` ... ```)
-    and single-backtick wrapping on individual lines.
-    """
     text = text.strip()
-    # Remove outer triple-backtick block if present
     if text.startswith("```"):
         nl = text.find("\n")
         if nl != -1:
             text = text[nl + 1:]
         if text.endswith("```"):
             text = text[:-3]
-    text = text.strip()
-
-    # FIX: also clean per-line inline backtick fences that some models emit
-    # e.g. "```json\n{...}\n```" split across lines after the outer strip above
-    cleaned_lines = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            continue  # skip fence-only lines
-        cleaned_lines.append(line)
-    return "\n".join(cleaned_lines).strip()
+    return text.strip()
 
 
 def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
@@ -414,19 +391,11 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                     continue
 
                 if sub_code not in subject_metadata:
-                    # FIX: the OCR prompt says index 6 (0-based) may contain '1'
-                    # that should be 'I'. The original code replaced the wrong
-                    # character and used the wrong condition.  Correct fix:
-                    # check position 6 for digit '1' and replace with letter 'I'.
-                    corrected = sub_code
-                    if len(sub_code) > 6 and sub_code[6] == '1':
-                        corrected = sub_code[:6] + 'I' + sub_code[7:]
-                    if corrected != sub_code and corrected in subject_metadata:
+                    corrected = sub_code[:-3] + '0' + sub_code[-2:]
+                    if len(sub_code) > 3 and 'O' in sub_code[-3:] and corrected in subject_metadata:
                         sub_code = corrected
-                        logger.info(f"Corrected subject code: {data.get('subject_code')} -> {sub_code}")
                     else:
-                        skipped_subjects.append(sub_code)
-                        continue
+                        skipped_subjects.append(sub_code); continue
 
                 if not grade or grade not in grade_points_map:
                     continue
@@ -506,10 +475,7 @@ Extract the student's register number, name, final cumulative CGPA, and total cr
 
 # ============== OCR WITH KEY ROTATION ==============
 
-# FIX: do_ocr runs blocking Groq SDK calls in a thread pool so it doesn't
-# stall the async event loop.
-def _do_ocr_sync(image_bytes: bytes, prompt: str) -> str:
-    """Blocking OCR — run via asyncio.to_thread from async callers."""
+def do_ocr(image_bytes: bytes, prompt: str) -> str:
     if not GROQ_API_KEYS:
         raise ExternalServiceError("LLM API", "No API keys configured")
 
@@ -536,23 +502,19 @@ def _do_ocr_sync(image_bytes: bytes, prompt: str) -> str:
             raise
         except Exception as e:
             err = str(e).lower()
-            lvl = "rate limited" if any(k in err for k in ['rate', 'limit', 'quota', '429', '503']) else "failed"
+            lvl = "rate limited" if any(k in err for k in ['rate','limit','quota','429','503']) else "failed"
             logger.warning(f"API key {i + 1} {lvl}: {e}")
             continue
 
     raise AllKeysExhaustedError()
 
 
-async def do_ocr(image_bytes: bytes, prompt: str) -> str:
-    return await asyncio.to_thread(_do_ocr_sync, image_bytes, prompt)
-
-
-async def get_cached_or_run_ocr(image_bytes: bytes, prompt: str, prompt_type: str) -> str:
+def get_cached_or_run_ocr(image_bytes: bytes, prompt: str, prompt_type: str) -> str:
     img_hash = hashlib.sha256(image_bytes).hexdigest()
 
     # ── cache read ──────────────────────────────────────────────────────────
     try:
-        result = await aturso_execute(
+        result = turso_execute(
             "SELECT ocr_result FROM image_cache WHERE image_hash = ? AND prompt_type = ?",
             [img_hash, prompt_type]
         )
@@ -566,11 +528,11 @@ async def get_cached_or_run_ocr(image_bytes: bytes, prompt: str, prompt_type: st
         logger.warning(f"Cache read error: {e}")
 
     # ── OCR ─────────────────────────────────────────────────────────────────
-    ocr_result = await do_ocr(image_bytes, prompt)
+    ocr_result = do_ocr(image_bytes, prompt)
 
     # ── cache write ─────────────────────────────────────────────────────────
     try:
-        await aturso_execute(
+        turso_execute(
             "INSERT OR REPLACE INTO image_cache (image_hash, prompt_type, ocr_result) VALUES (?, ?, ?)",
             [img_hash, prompt_type, ocr_result]
         )
@@ -607,7 +569,7 @@ async def validate_file_size(file: UploadFile) -> bytes:
 
 @app.get("/")
 def root():
-    return success_response({"status": "active", "message": "MGR GPA Calculator API", "version": "1.3.1"})
+    return success_response({"status": "active", "message": "MGR GPA Calculator API", "version": "1.3.0"})
 
 @app.get("/health")
 def health_check():
@@ -625,12 +587,12 @@ class ManualPrevData(BaseModel):
     credits: int
 
 @app.post("/manualPreviousData/")
-async def manual_previous_data(data: ManualPrevData):
+def manual_previous_data(data: ManualPrevData):
     """Save previous semester data directly without uploading an image."""
     if data.cgpa <= 0 or data.credits <= 0:
         raise ValidationError("CGPA and Credits must be greater than zero.")
 
-    await aturso_execute(
+    turso_execute(
         """
         INSERT INTO students (regno, prev_cgpa, prev_credits)
         VALUES (?, ?, ?)
@@ -654,7 +616,7 @@ async def upload_previous_sem(file: UploadFile = File(...)):
     validate_upload_file(file)
     image_bytes = await validate_file_size(file)
 
-    ocr_text = await get_cached_or_run_ocr(image_bytes, PREV_SEM_OCR_PROMPT, "prev_sem")
+    ocr_text = get_cached_or_run_ocr(image_bytes, PREV_SEM_OCR_PROMPT, "prev_sem")
 
     try:
         data = json.loads(clean_llm_json_response(ocr_text))
@@ -676,7 +638,7 @@ async def upload_previous_sem(file: UploadFile = File(...)):
     if not regno or cgpa <= 0 or credits <= 0:
         raise OCRError("Could not extract required fields (regno, cgpa, total_credits) from the image.")
 
-    await aturso_execute(
+    turso_execute(
         """
         INSERT INTO students (regno, name, prev_cgpa, prev_credits)
         VALUES (?, ?, ?, ?)
@@ -708,84 +670,76 @@ async def gpa_calculation(file: UploadFile = File(...)):
     validate_upload_file(file)
     image_bytes = await validate_file_size(file)
 
-    ocr_text = await get_cached_or_run_ocr(image_bytes, OCR_PROMPT, "current_sem")
+    ocr_text = get_cached_or_run_ocr(image_bytes, OCR_PROMPT, "current_sem")
     results  = calculate_gpa_logic(ocr_text)
 
-    # FIX: prev_map is always initialised so the DB-save block below never
-    # hits a NameError even if the fetch fails.
-    prev_map: Dict[str, Any] = {}
-
     try:
+        # Fetch all student rows in one batch to avoid N round-trips
         regnos       = [s["student_regno"] for s in results]
         placeholders = ", ".join("?" * len(regnos))
-        prev_result  = await aturso_execute(
+        prev_result  = turso_execute(
             f"SELECT regno, prev_cgpa, prev_credits FROM students WHERE regno IN ({placeholders})",
             regnos
         )
         prev_map = {row["regno"]: row for row in _rows_as_dicts(prev_result)}
+
+        db_statements = []
+        for student in results:
+            regno           = student["student_regno"]
+            current_gpa     = student["gpa"]
+            current_credits = student["current_credits"]
+
+            row = prev_map.get(regno)
+            if row and row.get("prev_credits") and row.get("prev_cgpa"):
+                prev_cgpa    = float(row["prev_cgpa"])
+                prev_credits = int(  row["prev_credits"])
+                new_cgpa     = round(
+                    (prev_credits * prev_cgpa + current_credits * current_gpa)
+                    / (prev_credits + current_credits), 2
+                )
+                student["prev_cgpa"]    = prev_cgpa
+                student["prev_credits"] = prev_credits
+                student["new_cgpa"]     = new_cgpa
+            else:
+                new_cgpa            = current_gpa
+                student["new_cgpa"] = new_cgpa
+
+            db_statements.append({
+                "sql": """
+                    INSERT INTO students (regno, name, current_gpa, current_credits, new_cgpa, results_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(regno) DO UPDATE SET
+                        name            = excluded.name,
+                        current_gpa     = excluded.current_gpa,
+                        current_credits = excluded.current_credits,
+                        new_cgpa        = excluded.new_cgpa,
+                        results_json    = excluded.results_json
+                """,
+                "args": [
+                    regno,
+                    student["student_name"],
+                    current_gpa,
+                    current_credits,
+                    new_cgpa,
+                    json.dumps(student["results"]),
+                ]
+            })
+
+        if db_statements:
+            turso_batch(db_statements)
+
     except ExternalServiceError:
-        # DB is down — still compute GPA, just skip CGPA calculation
-        logger.warning("DB unavailable; skipping prev-data lookup.")
+        pass  # DB down — still return GPA results to caller
     except Exception as e:
-        logger.error(f"DB fetch error in calculateGpa: {e}")
-
-    db_statements = []
-    for student in results:
-        regno           = student["student_regno"]
-        current_gpa     = student["gpa"]
-        current_credits = student["current_credits"]
-
-        row = prev_map.get(regno)
-        if row and row.get("prev_credits") and row.get("prev_cgpa"):
-            prev_cgpa    = float(row["prev_cgpa"])
-            prev_credits = int(  row["prev_credits"])
-            new_cgpa     = round(
-                (prev_credits * prev_cgpa + current_credits * current_gpa)
-                / (prev_credits + current_credits), 2
-            )
-            student["prev_cgpa"]    = prev_cgpa
-            student["prev_credits"] = prev_credits
-            student["new_cgpa"]     = new_cgpa
-        else:
-            new_cgpa            = current_gpa
-            student["new_cgpa"] = new_cgpa
-
-        db_statements.append({
-            "sql": """
-                INSERT INTO students (regno, name, current_gpa, current_credits, new_cgpa, results_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(regno) DO UPDATE SET
-                    name            = excluded.name,
-                    current_gpa     = excluded.current_gpa,
-                    current_credits = excluded.current_credits,
-                    new_cgpa        = excluded.new_cgpa,
-                    results_json    = excluded.results_json
-            """,
-            "args": [
-                regno,
-                student["student_name"],
-                current_gpa,
-                current_credits,
-                new_cgpa,
-                json.dumps(student["results"]),
-            ]
-        })
-
-    if db_statements:
-        try:
-            await aturso_batch(db_statements)
-        except ExternalServiceError:
-            pass  # DB down — GPA results were already computed, return them anyway
-        except Exception as e:
-            logger.error(f"DB write error in calculateGpa: {e}")
+        logger.error(f"DB error in calculateGpa: {e}")
 
     return success_response(results)
 
 
 @app.get("/student/{regno}")
-async def get_student(regno: str):
+def get_student(regno: str):
     """Retrieve a student's full record by register number."""
-    result = await aturso_execute(
+    result = turso_execute(
         "SELECT * FROM students WHERE regno = ?", [regno]
     )
     data = _first_row(result)
@@ -795,12 +749,7 @@ async def get_student(regno: str):
                            f"No data found for register number: {regno}", 404)
 
     if data.get("results_json"):
-        try:
-            data["results"] = json.loads(data["results_json"])
-        except json.JSONDecodeError:
-            data["results"] = []
-    else:
-        data["results"] = []
+        data["results"] = json.loads(data["results_json"])
     data.pop("results_json", None)
 
     return success_response(data)
