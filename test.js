@@ -86,7 +86,7 @@ const elements = {
   gotoHome: document.getElementById("go-to-home"),
   uploadText: document.getElementById("upload-text"),
   
-  // CGPA Elements
+  // CGPA Components
   prevCgpa: document.getElementById("prev-cgpa"),
   prevCredits: document.getElementById("prev-credits"),
   calcCgpaBtn: document.getElementById("calc-cgpa-btn"),
@@ -261,7 +261,7 @@ function resetUpload() {
   elements.clrBtn.disabled = true;
   state.lastFile = null;
   
-  // Wiping active local caches on clear execution
+  // Invalidate local storage cache mappings
   localStorage.removeItem("single_result");
   localStorage.removeItem("multi_result");
   showHero();
@@ -304,11 +304,11 @@ function displayResult(data) {
   elements.studentRegno.textContent = data.student_regno;
   elements.studentName.textContent = data.student_name;
   
-  // Save current GPA states and context values
+  // Track operational values inside active running state parameters
   state.currentGpa = data.gpa;
   state.currentCredits = data.total_credits || 0;
   
-  // Reset CGPA tracking indicators
+  // Clear layout text references
   if (elements.prevCgpa) elements.prevCgpa.value = "";
   if (elements.prevCredits) elements.prevCredits.value = "";
   if (elements.cgpaResultContainer) elements.cgpaResultContainer.classList.add("hidden");
@@ -367,7 +367,7 @@ function displayImagePreview(files) {
   elements.clrBtn.disabled = false;
 }
 
-// ============== CALCULATE CGPA CORE LOGIC ==============
+// ============== CALCULATE CGPA LOGIC ==============
 
 function handleCalculateCGPA() {
   const prevCgpa = parseFloat(elements.prevCgpa.value);
@@ -376,24 +376,23 @@ function handleCalculateCGPA() {
   const currentCredits = state.currentCredits;
   
   if (isNaN(prevCgpa) || prevCgpa < 0 || prevCgpa > 10) {
-    alert("Please enter a valid previous CGPA value between 0.00 and 10.00");
+    alert("Please enter a valid previous CGPA between 0.00 and 10.00");
     return;
   }
   if (isNaN(prevCredits) || prevCredits < 0) {
-    alert("Please enter a valid credit number representing prior semesters");
+    alert("Please enter a valid amount for total credits earned");
     return;
   }
   
-  const totalCreditsCombined = prevCredits + currentCredits;
-  if (totalCreditsCombined === 0) {
+  const totalCredits = prevCredits + currentCredits;
+  if (totalCredits === 0) {
     elements.newCgpaDisplay.textContent = "0.00";
     elements.cgpaResultContainer.classList.remove("hidden");
     return;
   }
   
-  // Mathematical formula execution:
-  // New CGPA = ((Previous Credits * Previous CGPA) + (Current Credits * Current GPA)) / (Previous Credits + Current Credits)
-  const calculatedCGPA = ((prevCredits * prevCgpa) + (currentCredits * currentGpa)) / totalCreditsCombined;
+  // Mathematical Formulation: New CGPA = ((Prev Credits * Prev CGPA) + (Curr Credits * Curr GPA)) / (Prev Credits + Curr Credits)
+  const calculatedCGPA = ((prevCredits * prevCgpa) + (currentCredits * currentGpa)) / totalCredits;
   
   elements.newCgpaDisplay.textContent = calculatedCGPA.toFixed(2);
   elements.cgpaResultContainer.classList.remove("hidden");
@@ -404,7 +403,7 @@ function handleCalculateCGPA() {
 async function handleCalculateClick(e) {
   if (e && e.preventDefault) e.preventDefault();
   
-  // Safe extraction fallbacks to secure drag-and-drop file objects
+  // Safe extraction fallback paths to prevent drop exceptions
   const file = state.lastFile || elements.fileInput.files[0];
   
   if (!file) {
@@ -497,7 +496,6 @@ function initializeEventListeners() {
   elements.retryBtn.addEventListener("click", handleRetry);
   elements.closeToastBtn.addEventListener("click", dismissError);
   
-  // Bind CGPA button event
   if (elements.calcCgpaBtn) {
     elements.calcCgpaBtn.addEventListener("click", handleCalculateCGPA);
   }
@@ -511,6 +509,7 @@ function checkStoredResults() {
     try {
       const parsedMulti = JSON.parse(multiResult);
       showSelectScreen(parsedMulti);
+      if (elements.clrBtn) elements.clrBtn.disabled = false;
       return;
     } catch (e) {
       localStorage.removeItem("multi_result");
@@ -521,6 +520,7 @@ function checkStoredResults() {
     try {
       const parsedResult = JSON.parse(singleResult);
       displayResult(parsedResult);
+      if (elements.clrBtn) elements.clrBtn.disabled = false;
     } catch (e) {
       localStorage.removeItem("single_result");
     }
@@ -530,9 +530,4 @@ function checkStoredResults() {
 document.addEventListener("DOMContentLoaded", () => {
   initializeEventListeners();
   checkStoredResults();
-  
-  // Toggle clear options visibility if entries exist in local cache pool
-  if (localStorage.getItem("single_result") || localStorage.getItem("multi_result")) {
-    elements.clrBtn.disabled = false;
-  }
 });
