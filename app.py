@@ -61,16 +61,9 @@ def _turso_http_url() -> str:
 
 
 def _typed_arg(value: Any) -> Dict:
-    """
-    Wrap a Python value into a Turso typed-arg dict.
-
-    Turso HTTP API spec for null:
-      CORRECT:   {"type": "null"}            — no "value" key
-      INCORRECT: {"type": "null", "value": null}  — JSON null is rejected (HTTP 400)
-    All other types must carry "value" as a STRING, never a bare number/bool.
-    """
+    """Wrap a Python value into a Turso typed-arg dict."""
     if value is None:
-        return {"type": "null"}                          # FIX: omit "value" key entirely
+        return {"type": "null",    "value": None}
     if isinstance(value, bool):
         return {"type": "integer", "value": str(int(value))}
     if isinstance(value, int):
@@ -84,39 +77,16 @@ def _build_pipeline_payload(statements: List[Dict]) -> Dict:
     """Build the pipeline request body from a list of {sql, args} dicts."""
     requests = []
     for s in statements:
-        # Strip leading/trailing whitespace from SQL to avoid parser edge-cases
-        sql = s["sql"].strip()
-        stmt: Dict[str, Any] = {"sql": sql}
-        args = s.get("args")
-        if args:                                         # only attach args when non-empty
-            stmt["args"] = [_typed_arg(a) for a in args]
+        stmt: Dict[str, Any] = {"sql": s["sql"]}
+        if s.get("args"):
+            stmt["args"] = [_typed_arg(a) for a in s["args"]]
         requests.append({"type": "execute", "stmt": stmt})
     requests.append({"type": "close"})
     return {"requests": requests}
 
 
-def _raise_for_status_with_body(resp: httpx.Response) -> None:
-    """
-    Like resp.raise_for_status() but logs the response body first so Turso's
-    actual error message (e.g. "invalid type for argument") is visible in logs.
-    """
-    if resp.is_error:
-        logger.error(
-            "Turso HTTP %s — body: %s",
-            resp.status_code,
-            resp.text[:500],           # cap at 500 chars to avoid log spam
-        )
-        resp.raise_for_status()        # still raises httpx.HTTPStatusError
-
-
 def _extract_results(body: Dict) -> List[Dict]:
-    """
-    Pull the result dicts out of a pipeline response body.
-    Application-level errors inside the JSON (type == "error") are logged;
-    we raise a plain RuntimeError here so callers that need ExternalServiceError
-    can catch and re-raise — this keeps the function usable before the
-    exception classes are defined.
-    """
+    """Pull the result dicts out of a pipeline response body."""
     results = []
     for item in body.get("results", []):
         if item.get("type") == "ok" and item["response"].get("type") == "execute":
@@ -124,7 +94,7 @@ def _extract_results(body: Dict) -> List[Dict]:
         elif item.get("type") == "error":
             msg = item.get("error", {}).get("message", "Unknown DB error")
             logger.error("Turso pipeline error: %s", msg)
-            raise RuntimeError(f"Turso: {msg}")         # FIX: don't ref ExternalServiceError here
+            raise ExternalServiceError("Database", msg)
     return results
 
 
@@ -132,7 +102,7 @@ def _extract_results(body: Dict) -> List[Dict]:
 
 def turso_execute_sync(sql: str, args: Optional[List] = None) -> Dict:
     if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise RuntimeError("Turso credentials missing")
+        raise ExternalServiceError("Database", "Turso credentials missing")
     payload = _build_pipeline_payload([{"sql": sql, "args": args or []}])
     try:
         resp = httpx.post(
@@ -141,18 +111,18 @@ def turso_execute_sync(sql: str, args: Optional[List] = None) -> Dict:
                      "Content-Type": "application/json"},
             json=payload, timeout=10.0,
         )
-        _raise_for_status_with_body(resp)               # FIX: log body before raising
+        resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        raise RuntimeError(f"Turso HTTP error: {e}") from e
+        raise ExternalServiceError("Database", str(e)) from e
     except httpx.RequestError as e:
-        raise RuntimeError(f"Turso request error: {e}") from e
+        raise ExternalServiceError("Database", str(e)) from e
     results = _extract_results(resp.json())
     return results[0] if results else {}
 
 
 def turso_batch_sync(statements: List[Dict]) -> List[Dict]:
     if not TURSO_URL or not TURSO_AUTH_TOKEN:
-        raise RuntimeError("Turso credentials missing")
+        raise ExternalServiceError("Database", "Turso credentials missing")
     payload = _build_pipeline_payload(statements)
     try:
         resp = httpx.post(
@@ -161,16 +131,17 @@ def turso_batch_sync(statements: List[Dict]) -> List[Dict]:
                      "Content-Type": "application/json"},
             json=payload, timeout=15.0,
         )
-        _raise_for_status_with_body(resp)               # FIX: log body before raising
+        resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        raise RuntimeError(f"Turso HTTP error: {e}") from e
+        raise ExternalServiceError("Database", str(e)) from e
     except httpx.RequestError as e:
-        raise RuntimeError(f"Turso request error: {e}") from e
+        raise ExternalServiceError("Database", str(e)) from e
     return _extract_results(resp.json())
 
 
 # ── Async versions (used inside FastAPI route handlers) ────────────────────
 
+# FIX: async Turso helpers prevent blocking the event loop during DB I/O
 async def aturso_execute(sql: str, args: Optional[List] = None) -> Dict:
     if not TURSO_URL or not TURSO_AUTH_TOKEN:
         raise ExternalServiceError("Database", "Turso credentials missing")
@@ -183,15 +154,12 @@ async def aturso_execute(sql: str, args: Optional[List] = None) -> Dict:
                          "Content-Type": "application/json"},
                 json=payload,
             )
-            _raise_for_status_with_body(resp)           # FIX: log body before raising
+            resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise ExternalServiceError("Database", str(e)) from e
     except httpx.RequestError as e:
         raise ExternalServiceError("Database", str(e)) from e
-    try:
-        results = _extract_results(resp.json())
-    except RuntimeError as e:
-        raise ExternalServiceError("Database", str(e)) from e
+    results = _extract_results(resp.json())
     return results[0] if results else {}
 
 
@@ -207,15 +175,12 @@ async def aturso_batch(statements: List[Dict]) -> List[Dict]:
                          "Content-Type": "application/json"},
                 json=payload,
             )
-            _raise_for_status_with_body(resp)           # FIX: log body before raising
+            resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise ExternalServiceError("Database", str(e)) from e
     except httpx.RequestError as e:
         raise ExternalServiceError("Database", str(e)) from e
-    try:
-        return _extract_results(resp.json())
-    except RuntimeError as e:
-        raise ExternalServiceError("Database", str(e)) from e
+    return _extract_results(resp.json())
 
 
 def _rows_as_dicts(result: Dict) -> List[Dict]:
