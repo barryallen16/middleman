@@ -2,12 +2,12 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
-from google.genai import types
+from groq import Groq
 import os 
 from dotenv import load_dotenv
 import json
 import logging
+import base64
 from typing import Optional, Dict, Any, List
 
 # Configure logging
@@ -21,17 +21,17 @@ load_dotenv()
 
 # ============== API KEYS CONFIGURATION ==============
 
-# Load multiple Gemini API keys from environment (comma-separated)
-# Format in .env: GEMINI_API_KEYS=key1,key2,key3
-GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS', '')
-GEMINI_API_KEYS = [key.strip() for key in GEMINI_API_KEYS_STR.split(',') if key.strip()]
+# Load multiple Groq API keys from environment (comma-separated)
+# Format in .env: GROQ_API_KEYS=key1,key2,key3
+GROQ_API_KEYS_STR = os.getenv('GROQ_API_KEYS', '')
+GROQ_API_KEYS = [key.strip() for key in GROQ_API_KEYS_STR.split(',') if key.strip()]
 
-# Fallback: Also check for single key (backward compatibility)
-SINGLE_GEMINI_KEY = os.getenv('RESULTS_PROJ_APIKEY')
-if SINGLE_GEMINI_KEY and SINGLE_GEMINI_KEY not in GEMINI_API_KEYS:
-    GEMINI_API_KEYS.insert(0, SINGLE_GEMINI_KEY)
+# Fallback: Also check for single key versions
+SINGLE_GROQ_KEY = os.getenv('GROQ_API_KEY') or os.getenv('RESULTS_PROJ_APIKEY')
+if SINGLE_GROQ_KEY and SINGLE_GROQ_KEY not in GROQ_API_KEYS:
+    GROQ_API_KEYS.insert(0, SINGLE_GROQ_KEY)
 
-logger.info(f"Loaded {len(GEMINI_API_KEYS)} Gemini API keys")
+logger.info(f"Loaded {len(GROQ_API_KEYS)} Groq API keys")
 
 app = FastAPI()
 
@@ -303,6 +303,7 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                 gpa = 0.0
             
             current_dict["gpa"] = gpa
+            current_dict["total_credits"] = total_credits
             
             if current_dict["results"]:
                 final_list.append(current_dict)
@@ -343,49 +344,59 @@ Extract student registration details and examination results from the provided i
 
 **Extraction Rules:**
 1.  **Distinguish Characters:** Be extremely careful with 'O' (letter) versus '0' (zero).
-2.  **Index 6 Correction:**  If you detect the number '1' at index 6 of any `subject_code, you must correct it to 'I'.
+2.  **Index 6 Correction:** If you detect the number '1' at index 6 of any `subject_code, you must correct it to 'I'.
 3.  **Multiple Students:** If the image lists multiple students, generate one JSON line per student.
 4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object on a single line:
     {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
 """
 
-# ============== GEMINI OCR WITH KEY ROTATION ==============
+# ============== GROQ OCR WITH KEY ROTATION ==============
 
 def do_ocr(image_bytes: bytes) -> str:
     """
-    Perform OCR using Gemini API with automatic key rotation.
+    Perform OCR using Groq API with automatic key rotation.
     If one key fails (rate limit, quota exceeded), try the next one.
     """
-    if not GEMINI_API_KEYS:
-        raise ExternalServiceError("Gemini AI", "No API keys configured")
+    if not GROQ_API_KEYS:
+        raise ExternalServiceError("Groq AI", "No API keys configured")
     
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
     last_error = None
     
-    for i, api_key in enumerate(GEMINI_API_KEYS):
+    for i, api_key in enumerate(GROQ_API_KEYS):
         try:
-            logger.info(f"Trying Gemini API key {i + 1}/{len(GEMINI_API_KEYS)}")
+            logger.info(f"Trying Groq API key {i + 1}/{len(GROQ_API_KEYS)}")
             
-            # Create client with current key
-            client = genai.Client(api_key=api_key)
+            client = Groq(api_key=api_key)
             
-            # Make the API call
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                    OCR_PROMPT
+            # Request processing using Llama 4 Scout Multimodal Model
+            response = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": OCR_PROMPT},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                },
+                            },
+                        ],
+                    }
                 ]
             )
             
-            if not response.text:
+            content = response.choices[0].message.content
+            if not content:
                 raise OCRError("No text was extracted from the image")
             
-            logger.info(f"Gemini OCR successful with key {i + 1}")
-            logger.info(f"OCR Response: {response.text[:200]}...")
-            return response.text
+            logger.info(f"Groq OCR successful with key {i + 1}")
+            logger.info(f"OCR Response: {content[:200]}...")
+            return content
             
         except OCRError:
-            # OCR errors (like unclear image) should not trigger key rotation
             raise
             
         except Exception as e:
@@ -393,17 +404,15 @@ def do_ocr(image_bytes: bytes) -> str:
             
             # Check if it's a rate limit or quota error (should try next key)
             if any(keyword in error_str for keyword in ['rate', 'limit', 'quota', '429', '503', 'exhausted', 'exceeded']):
-                logger.warning(f"Gemini API key {i + 1} rate limited/exhausted: {e}")
+                logger.warning(f"Groq API key {i + 1} rate limited/exhausted: {e}")
                 last_error = e
                 continue
             
-            # For other errors, also try next key
-            logger.warning(f"Gemini API key {i + 1} failed: {e}")
+            logger.warning(f"Groq API key {i + 1} failed: {e}")
             last_error = e
             continue
     
-    # All keys exhausted
-    logger.error(f"All {len(GEMINI_API_KEYS)} Gemini API keys exhausted")
+    logger.error(f"All {len(GROQ_API_KEYS)} Groq API keys exhausted")
     raise AllKeysExhaustedError()
 
 # ============== VALIDATION HELPERS ==============
@@ -455,42 +464,29 @@ def health_check():
         "status": "healthy",
         "grades_loaded": len(grade_points_map),
         "subjects_loaded": len(subject_metadata),
-        "api_keys_configured": len(GEMINI_API_KEYS)
+        "api_keys_configured": len(GROQ_API_KEYS)
     })
 
 @app.post("/calculateGpa/")
 async def gpa_calculation(file: UploadFile = File(...)):
-    # Step 1: Validate file type
     validate_upload_file(file)
-    
-    # Step 2: Read and validate file size
     image_bytes = await validate_file_size(file)
-    
-    # Step 3: Perform OCR (with automatic key rotation)
     ocr_text = do_ocr(image_bytes)
-    
-    # Step 4: Calculate GPA
     results = calculate_gpa_logic(ocr_text)
-    
-    # Step 5: Return success response
     return success_response(results)
 
 @app.get("/return/")
 def return_jsonlist():
-    """Test endpoint with sample data"""
-    string_ = """{"student_regno": "REGNO-A", "student_name": "STUDENT-A", "results": [{"subject_code": "EBCC22I07", "grade": "B"}, {"subject_code": "EBCS22009", "grade": "C"}, {"subject_code": "EBCS22010", "grade": "C"}, {"subject_code": "EBCS22E11", "grade": "F"}, {"subject_code": "EBCS22L07", "grade": "S"}, {"subject_code": "EBCS22L08", "grade": "S"}, {"subject_code": "EBDS22ET6", "grade": "B"}, {"subject_code": "EBDS22I03", "grade": "B"}, {"subject_code": "EBDS22I04", "grade": "B"}, {"subject_code": "EBEE22OE6", "grade": "A"}, {"subject_code": "EBCS22006", "grade": "B"}, {"subject_code": "EBCS22007", "grade": "C"}]}
-{"student_regno": "REGNO-B", "student_name": "STUDENT-B", "results": [{"subject_code": "EBCC22I07", "grade": "A"}, {"subject_code": "EBCS22009", "grade": "C"}, {"subject_code": "EBCS22010", "grade": "C"}, {"subject_code": "EBCS22E11", "grade": "F"}, {"subject_code": "EBCS22L07", "grade": "S"}, {"subject_code": "EBCS22L08", "grade": "S"}, {"subject_code": "EBDS22ET6", "grade": "B"}, {"subject_code": "EBDS22I03", "grade": "A"}, {"subject_code": "EBDS22I04", "grade": "S"}, {"subject_code": "EBEE22OE8", "grade": "B"}, {"subject_code": "EBBT22OE1", "grade": "A"}]}"""
-    
+    string_ = """{"student_regno": "REGNO-A", "student_name": "STUDENT-A", "results": [{"subject_code": "EBCC22I07", "grade": "B"}, {"subject_code": "EBCS22009", "grade": "C"}, {"subject_code": "EBCS22010", "grade": "C"}, {"subject_code": "EBCS22E11", "grade": "F"}, {"subject_code": "EBCS22L07", "grade": "S"}, {"subject_code": "EBCS22L08", "grade": "S"}, {"subject_code": "EBDS22ET6", "grade": "B"}, {"subject_code": "EBDS22I03", "grade": "B"}, {"subject_code": "EBDS22I04", "grade": "B"}, {"subject_code": "EBEE22OE6", "grade": "A"}, {"subject_code": "EBCS22006", "grade": "B"}, {"subject_code": "EBCS22007", "grade": "C"}]}"""
     results = calculate_gpa_logic(string_)
     return success_response(results)
 
 @app.get("/debug/metadata")
 def debug_metadata():
-    """Debug endpoint - remove in production"""
     return success_response({
         "grade_points_count": len(grade_points_map),
         "subjects_count": len(subject_metadata),
         "sample_grades": dict(list(grade_points_map.items())[:5]),
         "sample_subjects": dict(list(subject_metadata.items())[:5]),
-        "api_keys_count": len(GEMINI_API_KEYS)
+        "api_keys_count": len(GROQ_API_KEYS)
     })
