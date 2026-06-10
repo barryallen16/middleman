@@ -368,7 +368,7 @@ def do_ocr(image_bytes: bytes) -> str:
             client = genai.Client(api_key=api_key)
             
             response = client.models.generate_content(
-                model="gemini-3.5-flash",
+                model="gemini-3.1-flash-lite",
                 contents=[
                     types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                     OCR_PROMPT
