@@ -1,7 +1,7 @@
 // ============== CONFIGURATION ==============
 
 const CONFIG = {
-  API_BASE_URL: "https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app",
+  API_BASE_URL: "[https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app](https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app)",
   MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
   ALLOWED_TYPES: ["image/png", "image/jpg", "image/jpeg"],
   REQUEST_TIMEOUT: 120000, // 2 minutes for OCR processing
@@ -43,31 +43,21 @@ class APIError extends AppError {
 // ============== ERROR MESSAGES MAP ==============
 
 const ERROR_MESSAGES = {
-  // Network errors
   NETWORK_ERROR: "Couldn't reach the server. Check your internet connection and try again.",
   TIMEOUT_ERROR: "Request timed out. The server is taking too long to respond.",
-  
-  // Validation errors
   VALIDATION_ERROR: "Invalid input. Please check your file and try again.",
   INVALID_FILE_TYPE: "Invalid file type. Please upload a PNG, JPG, or JPEG image.",
   FILE_TOO_LARGE: "File is too large. Maximum allowed size is 5MB.",
   EMPTY_FILE: "The uploaded file is empty.",
-  
-  // OCR errors
   OCR_ERROR: "Couldn't read the image. Please upload a clearer screenshot.",
   IMAGE_UNCLEAR: "The image is too blurry or unclear. Please upload a better quality image.",
-  
-  // Data errors
   SUBJECT_NOT_FOUND: "Some subjects in your result weren't recognized. The database may not have all subjects yet.",
   GRADE_NOT_FOUND: "Invalid grade detected in your results.",
   NO_RESULTS: "No valid results found in the image. Please ensure you're uploading a results screenshot.",
   INVALID_CREDITS: "Some subject credits are missing from our database.",
-  
-  // Server errors
   INTERNAL_ERROR: "Something went wrong on our end. Please try again later.",
   EXTERNAL_SERVICE_ERROR: "Our AI service is temporarily unavailable. Please try again in a few minutes.",
-  
-  // Default
+  ALL_KEYS_EXHAUSTED: "All API keys have been exhausted. Please try again later.",
   UNKNOWN_ERROR: "An unexpected error occurred. Please try again.",
 };
 
@@ -95,6 +85,13 @@ const elements = {
   goBackBtn: document.getElementById("go-back-btn"),
   gotoHome: document.getElementById("go-to-home"),
   uploadText: document.getElementById("upload-text"),
+  
+  // CGPA Elements
+  prevCgpa: document.getElementById("prev-cgpa"),
+  prevCredits: document.getElementById("prev-credits"),
+  calcCgpaBtn: document.getElementById("calc-cgpa-btn"),
+  cgpaResultContainer: document.getElementById("cgpa-result-container"),
+  newCgpaDisplay: document.getElementById("new-cgpa-display"),
 };
 
 // ============== STATE ==============
@@ -103,6 +100,8 @@ let state = {
   globalResponse: [],
   multipleStudentResults: false,
   lastFile: null,
+  currentGpa: 0.0,
+  currentCredits: 0,
 };
 
 // ============== VALIDATION FUNCTIONS ==============
@@ -158,42 +157,23 @@ async function fetchWithTimeout(url, options, timeout = CONFIG.REQUEST_TIMEOUT) 
 
 async function parseAPIResponse(response) {
   const contentType = response.headers.get("content-type");
-  
   if (!contentType || !contentType.includes("application/json")) {
-    throw new APIError(
-      "INVALID_RESPONSE",
-      "Server returned an invalid response",
-      {},
-      response.status
-    );
+    throw new APIError("INVALID_RESPONSE", "Server returned an invalid response", {}, response.status);
   }
-
-  const data = await response.json();
-  return data;
+  return await response.json();
 }
 
 async function handleAPIError(response) {
   try {
     const errorData = await parseAPIResponse(response);
-    
     if (errorData.error) {
       const { code, message, details } = errorData.error;
       const userMessage = ERROR_MESSAGES[code] || message || ERROR_MESSAGES.UNKNOWN_ERROR;
       throw new APIError(code, userMessage, details, response.status);
     }
-    
-    throw new APIError(
-      "UNKNOWN_ERROR",
-      ERROR_MESSAGES.UNKNOWN_ERROR,
-      {},
-      response.status
-    );
+    throw new APIError("UNKNOWN_ERROR", ERROR_MESSAGES.UNKNOWN_ERROR, {}, response.status);
   } catch (error) {
-    if (error instanceof APIError) {
-      throw error;
-    }
-    
-    // Fallback for non-JSON error responses
+    if (error instanceof APIError) throw error;
     const statusMessages = {
       400: "Bad request. Please check your input.",
       401: "Unauthorized. Please refresh and try again.",
@@ -205,13 +185,7 @@ async function handleAPIError(response) {
       502: "Service temporarily unavailable.",
       503: "Service is overloaded. Please try again later.",
     };
-    
-    throw new APIError(
-      "HTTP_ERROR",
-      statusMessages[response.status] || `Server error (${response.status})`,
-      {},
-      response.status
-    );
+    throw new APIError("HTTP_ERROR", statusMessages[response.status] || `Server error (${response.status})`, {}, response.status);
   }
 }
 
@@ -231,7 +205,6 @@ async function uploadImage(file) {
     }
 
     const data = await parseAPIResponse(response);
-    
     if (!data.success) {
       const error = data.error || {};
       throw new APIError(
@@ -241,20 +214,10 @@ async function uploadImage(file) {
         200
       );
     }
-
     return data.data;
   } catch (error) {
-    // Re-throw known errors
-    if (error instanceof AppError) {
-      throw error;
-    }
-    
-    // Handle network errors
-    if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new NetworkError();
-    }
-    
-    // Handle other errors
+    if (error instanceof AppError) throw error;
+    if (error instanceof TypeError && error.message.includes("fetch")) throw new NetworkError();
     console.error("Unexpected error:", error);
     throw new AppError("UNKNOWN_ERROR", ERROR_MESSAGES.UNKNOWN_ERROR);
   }
@@ -276,24 +239,12 @@ function hideLoading() {
 function showError(error) {
   hideLoading();
   elements.heroSection.classList.remove("hidden");
-  
   let message = ERROR_MESSAGES.UNKNOWN_ERROR;
-  
-  if (error instanceof AppError) {
-    message = error.message;
-  } else if (error instanceof Error) {
-    message = error.message || ERROR_MESSAGES.UNKNOWN_ERROR;
-  }
+  if (error instanceof AppError) message = error.message;
+  else if (error instanceof Error) message = error.message || ERROR_MESSAGES.UNKNOWN_ERROR;
   
   elements.errorMessage.textContent = message;
   elements.errorToast.classList.remove("hidden");
-  
-  console.error("Error details:", {
-    type: error.constructor.name,
-    code: error.code,
-    message: error.message,
-    details: error.details,
-  });
 }
 
 function dismissError() {
@@ -301,11 +252,7 @@ function dismissError() {
 }
 
 function resetUpload() {
-  // Revoke object URLs
-  elements.preview.querySelectorAll("img").forEach((img) => {
-    URL.revokeObjectURL(img.src);
-  });
-  
+  elements.preview.querySelectorAll("img").forEach((img) => URL.revokeObjectURL(img.src));
   elements.preview.innerHTML = "";
   elements.preview.classList.add("hidden");
   elements.uploadText.classList.remove("hidden");
@@ -313,6 +260,11 @@ function resetUpload() {
   elements.calBtn.disabled = true;
   elements.clrBtn.disabled = true;
   state.lastFile = null;
+  
+  // Wiping active local caches on clear execution
+  localStorage.removeItem("single_result");
+  localStorage.removeItem("multi_result");
+  showHero();
 }
 
 function showHero() {
@@ -320,12 +272,9 @@ function showHero() {
   elements.selectRegScreen.classList.add("hidden");
   elements.resultSection.classList.add("hidden");
   elements.heroSection.classList.remove("hidden");
-  
-  // Clear select options
   while (elements.selectRegno.firstChild) {
     elements.selectRegno.removeChild(elements.selectRegno.firstChild);
   }
-  
   state.globalResponse = [];
   state.multipleStudentResults = false;
 }
@@ -334,11 +283,8 @@ function showSelectScreen(data) {
   hideLoading();
   state.globalResponse = data;
   state.multipleStudentResults = true;
-  
-  // Clear existing options
   elements.selectRegno.innerHTML = "";
   
-  // Add options
   data.forEach((student, index) => {
     const option = document.createElement("option");
     option.textContent = `${student.student_regno} - ${student.student_name}`;
@@ -346,7 +292,6 @@ function showSelectScreen(data) {
     option.classList.add("bg-white", "text-black", "text-sm");
     elements.selectRegno.appendChild(option);
   });
-  
   elements.selectRegScreen.classList.remove("hidden");
 }
 
@@ -359,7 +304,15 @@ function displayResult(data) {
   elements.studentRegno.textContent = data.student_regno;
   elements.studentName.textContent = data.student_name;
   
-  // Build results HTML
+  // Save current GPA states and context values
+  state.currentGpa = data.gpa;
+  state.currentCredits = data.total_credits || 0;
+  
+  // Reset CGPA tracking indicators
+  if (elements.prevCgpa) elements.prevCgpa.value = "";
+  if (elements.prevCredits) elements.prevCredits.value = "";
+  if (elements.cgpaResultContainer) elements.cgpaResultContainer.classList.add("hidden");
+  
   let resultsHTML = `
     <li class="w-[90%] bg-white rounded-lg flex px-4 py-2 justify-between gap-4 text-black border-3">
       <h2>Your GPA is:</h2>
@@ -381,15 +334,12 @@ function displayResult(data) {
       </li>
     `;
   });
-  
   elements.resultDisplay.innerHTML = resultsHTML;
 }
 
 function displayImagePreview(files) {
   if (!files || files.length === 0) return;
-  
   const file = files[0];
-  
   try {
     validateFile(file);
   } catch (error) {
@@ -399,10 +349,7 @@ function displayImagePreview(files) {
   }
   
   state.lastFile = file;
-  
-  // Clear previous preview
   elements.preview.innerHTML = "";
-  
   const li = document.createElement("li");
   const img = document.createElement("img");
   
@@ -420,12 +367,45 @@ function displayImagePreview(files) {
   elements.clrBtn.disabled = false;
 }
 
+// ============== CALCULATE CGPA CORE LOGIC ==============
+
+function handleCalculateCGPA() {
+  const prevCgpa = parseFloat(elements.prevCgpa.value);
+  const prevCredits = parseInt(elements.prevCredits.value, 10);
+  const currentGpa = state.currentGpa;
+  const currentCredits = state.currentCredits;
+  
+  if (isNaN(prevCgpa) || prevCgpa < 0 || prevCgpa > 10) {
+    alert("Please enter a valid previous CGPA value between 0.00 and 10.00");
+    return;
+  }
+  if (isNaN(prevCredits) || prevCredits < 0) {
+    alert("Please enter a valid credit number representing prior semesters");
+    return;
+  }
+  
+  const totalCreditsCombined = prevCredits + currentCredits;
+  if (totalCreditsCombined === 0) {
+    elements.newCgpaDisplay.textContent = "0.00";
+    elements.cgpaResultContainer.classList.remove("hidden");
+    return;
+  }
+  
+  // Mathematical formula execution:
+  // New CGPA = ((Previous Credits * Previous CGPA) + (Current Credits * Current GPA)) / (Previous Credits + Current Credits)
+  const calculatedCGPA = ((prevCredits * prevCgpa) + (currentCredits * currentGpa)) / totalCreditsCombined;
+  
+  elements.newCgpaDisplay.textContent = calculatedCGPA.toFixed(2);
+  elements.cgpaResultContainer.classList.remove("hidden");
+}
+
 // ============== EVENT HANDLERS ==============
 
 async function handleCalculateClick(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
   
-  const file = elements.fileInput.files[0];
+  // Safe extraction fallbacks to secure drag-and-drop file objects
+  const file = state.lastFile || elements.fileInput.files[0];
   
   if (!file) {
     showError(new ValidationError("Please select an image first"));
@@ -435,14 +415,11 @@ async function handleCalculateClick(e) {
   try {
     validateFile(file);
     showLoading();
-    
     const results = await uploadImage(file);
-    
     if (!results || results.length === 0) {
       throw new APIError("NO_RESULTS", ERROR_MESSAGES.NO_RESULTS);
     }
     
-    // Store in localStorage
     if (results.length > 1) {
       localStorage.setItem("multi_result", JSON.stringify(results));
       showSelectScreen(results);
@@ -450,7 +427,6 @@ async function handleCalculateClick(e) {
       localStorage.setItem("single_result", JSON.stringify(results[0]));
       displayResult(results[0]);
     }
-    
   } catch (error) {
     showError(error);
   }
@@ -459,7 +435,6 @@ async function handleCalculateClick(e) {
 function handleViewGPA() {
   const selectedIndex = elements.selectRegno.value;
   const selectedStudent = state.globalResponse[selectedIndex];
-  
   if (selectedStudent) {
     localStorage.setItem("single_result", JSON.stringify(selectedStudent));
     displayResult(selectedStudent);
@@ -468,7 +443,6 @@ function handleViewGPA() {
 
 function handleGoBack() {
   elements.resultSection.classList.add("hidden");
-  
   if (state.multipleStudentResults) {
     elements.selectRegScreen.classList.remove("hidden");
   } else {
@@ -478,33 +452,27 @@ function handleGoBack() {
 
 function handleRetry() {
   dismissError();
-  
   if (state.lastFile) {
-    elements.calBtn.click();
+    handleCalculateClick();
   }
 }
 
 function handleDrop(e) {
   e.preventDefault();
-  const files = [...e.dataTransfer.items]
-    .map((item) => item.getAsFile())
-    .filter((file) => file);
+  const files = [...e.dataTransfer.items].map((item) => item.getAsFile()).filter((file) => file);
   displayImagePreview(files);
 }
 
 // ============== INITIALIZATION ==============
 
 function initializeEventListeners() {
-  // Drag and drop
   elements.dropZone.addEventListener("click", () => elements.fileInput.click());
   elements.dropZone.addEventListener("drop", handleDrop);
   elements.dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
     const fileItems = [...e.dataTransfer.items].filter((item) => item.kind === "file");
     if (fileItems.length > 0) {
-      e.dataTransfer.dropEffect = fileItems.some((item) => 
-        item.type.startsWith("image/")
-      ) ? "copy" : "none";
+      e.dataTransfer.dropEffect = fileItems.some((item) => item.type.startsWith("image/")) ? "copy" : "none";
     }
   });
   
@@ -512,24 +480,15 @@ function initializeEventListeners() {
     const fileItems = [...e.dataTransfer.items].filter((item) => item.kind === "file");
     if (fileItems.length > 0) {
       e.preventDefault();
-      if (!elements.dropZone.contains(e.target)) {
-        e.dataTransfer.dropEffect = "none";
-      }
+      if (!elements.dropZone.contains(e.target)) e.dataTransfer.dropEffect = "none";
     }
   });
   
   window.addEventListener("drop", (e) => {
-    if ([...e.dataTransfer.items].some((item) => item.kind === "file")) {
-      e.preventDefault();
-    }
+    if ([...e.dataTransfer.items].some((item) => item.kind === "file")) e.preventDefault();
   });
   
-  // File input
-  elements.fileInput.addEventListener("change", (e) => {
-    displayImagePreview(e.target.files);
-  });
-  
-  // Buttons
+  elements.fileInput.addEventListener("change", (e) => displayImagePreview(e.target.files));
   elements.clrBtn.addEventListener("click", resetUpload);
   elements.calBtn.addEventListener("click", handleCalculateClick);
   elements.viewGpa.addEventListener("click", handleViewGPA);
@@ -537,25 +496,43 @@ function initializeEventListeners() {
   elements.gotoHome.addEventListener("click", showHero);
   elements.retryBtn.addEventListener("click", handleRetry);
   elements.closeToastBtn.addEventListener("click", dismissError);
+  
+  // Bind CGPA button event
+  if (elements.calcCgpaBtn) {
+    elements.calcCgpaBtn.addEventListener("click", handleCalculateCGPA);
+  }
 }
 
 function checkStoredResults() {
   const singleResult = localStorage.getItem("single_result");
+  const multiResult = localStorage.getItem("multi_result");
+  
+  if (multiResult) {
+    try {
+      const parsedMulti = JSON.parse(multiResult);
+      showSelectScreen(parsedMulti);
+      return;
+    } catch (e) {
+      localStorage.removeItem("multi_result");
+    }
+  }
   
   if (singleResult) {
     try {
       const parsedResult = JSON.parse(singleResult);
-      console.log("Found stored single result:", parsedResult);
-      // Optionally auto-display: displayResult(parsedResult);
+      displayResult(parsedResult);
     } catch (e) {
-      console.error("Failed to parse stored result:", e);
       localStorage.removeItem("single_result");
     }
   }
 }
 
-// Initialize on DOM ready
 document.addEventListener("DOMContentLoaded", () => {
   initializeEventListeners();
   checkStoredResults();
+  
+  // Toggle clear options visibility if entries exist in local cache pool
+  if (localStorage.getItem("single_result") || localStorage.getItem("multi_result")) {
+    elements.clrBtn.disabled = false;
+  }
 });
