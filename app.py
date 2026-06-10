@@ -3,12 +3,13 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
+from pydantic import BaseModel
 import base64
 import os 
 from dotenv import load_dotenv
 import json
 import logging
-import sqlite3
+import libsql_client
 import hashlib
 from typing import Optional, Dict, Any, List
 
@@ -42,40 +43,46 @@ app.add_middleware(
     allow_credentials=False
 )
 
-# ============== DATABASE CONFIGURATION ==============
+# ============== DATABASE CONFIGURATION (TURSO) ==============
 
-DB_FILE = "student_data.db"
+TURSO_URL = os.getenv("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_db_client():
+    if not TURSO_URL or not TURSO_AUTH_TOKEN:
+        logger.error("Turso credentials missing. Please set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.")
+        raise ExternalServiceError("Database", "Database credentials missing")
+    return libsql_client.create_client_sync(url=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
 
 def init_db():
-    with get_db_connection() as conn:
-        # Table to store student records and computed GPAs
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS students (
-                regno TEXT PRIMARY KEY,
-                name TEXT,
-                prev_cgpa REAL,
-                prev_credits INTEGER,
-                current_gpa REAL,
-                current_credits INTEGER,
-                new_cgpa REAL,
-                results_json TEXT
-            )
-        ''')
-        # Table to cache OCR results using SHA256 image hashes
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS image_cache (
-                image_hash TEXT,
-                prompt_type TEXT,
-                ocr_result TEXT,
-                PRIMARY KEY (image_hash, prompt_type)
-            )
-        ''')
-        conn.commit()
+    if not TURSO_URL or not TURSO_AUTH_TOKEN:
+        logger.warning("Skipping DB init: Turso credentials missing.")
+        return
+        
+    try:
+        with get_db_client() as client:
+            client.execute('''
+                CREATE TABLE IF NOT EXISTS students (
+                    regno TEXT PRIMARY KEY,
+                    name TEXT,
+                    prev_cgpa REAL,
+                    prev_credits INTEGER,
+                    current_gpa REAL,
+                    current_credits INTEGER,
+                    new_cgpa REAL,
+                    results_json TEXT
+                )
+            ''')
+            client.execute('''
+                CREATE TABLE IF NOT EXISTS image_cache (
+                    image_hash TEXT,
+                    prompt_type TEXT,
+                    ocr_result TEXT,
+                    PRIMARY KEY (image_hash, prompt_type)
+                )
+            ''')
+    except Exception as e:
+        logger.error(f"Failed to initialize Turso database: {e}")
 
 init_db()
 
@@ -403,9 +410,6 @@ Extract student registration details, the final cumulative CGPA, and the total c
 # ============== OCR WITH KEY ROTATION ==============
 
 def do_ocr(image_bytes: bytes, prompt: str) -> str:
-    """
-    Perform OCR with automatic API key rotation.
-    """
     if not GROQ_API_KEYS:
         raise ExternalServiceError("LLM API", "No API keys configured")
     
@@ -470,24 +474,28 @@ def do_ocr(image_bytes: bytes, prompt: str) -> str:
 def get_cached_or_run_ocr(image_bytes: bytes, prompt: str, prompt_type: str) -> str:
     img_hash = hashlib.sha256(image_bytes).hexdigest()
     
-    with get_db_connection() as conn:
-        cursor = conn.execute(
-            "SELECT ocr_result FROM image_cache WHERE image_hash = ? AND prompt_type = ?",
-            (img_hash, prompt_type)
-        )
-        row = cursor.fetchone()
-        if row:
-            logger.info(f"Cache hit for image ({prompt_type}). Skipping API call.")
-            return row['ocr_result']
+    try:
+        with get_db_client() as client:
+            result = client.execute(
+                "SELECT ocr_result FROM image_cache WHERE image_hash = ? AND prompt_type = ?",
+                [img_hash, prompt_type]
+            )
+            if result.rows:
+                logger.info(f"Cache hit for image ({prompt_type}). Skipping API call.")
+                return result.rows[0]["ocr_result"]
+    except Exception as e:
+        logger.warning(f"Database read error (Cache): {e}")
             
     ocr_result = do_ocr(image_bytes, prompt)
     
-    with get_db_connection() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO image_cache (image_hash, prompt_type, ocr_result) VALUES (?, ?, ?)",
-            (img_hash, prompt_type, ocr_result)
-        )
-        conn.commit()
+    try:
+        with get_db_client() as client:
+            client.execute(
+                "INSERT OR REPLACE INTO image_cache (image_hash, prompt_type, ocr_result) VALUES (?, ?, ?)",
+                [img_hash, prompt_type, ocr_result]
+            )
+    except Exception as e:
+        logger.warning(f"Database write error (Cache): {e}")
         
     return ocr_result
 
@@ -540,6 +548,34 @@ def health_check():
         "api_keys_configured": len(GROQ_API_KEYS)
     })
 
+# --- Pydantic model for manual insertion ---
+class ManualPrevData(BaseModel):
+    regno: str
+    cgpa: float
+    credits: int
+
+@app.post("/manualPreviousData/")
+def manual_previous_data(data: ManualPrevData):
+    """Save manual previous semester data directly to Turso DB"""
+    if data.cgpa <= 0 or data.credits <= 0:
+        raise ValidationError("CGPA and Credits must be greater than zero.")
+    
+    with get_db_client() as client:
+        client.execute('''
+            INSERT INTO students (regno, prev_cgpa, prev_credits)
+            VALUES (?, ?, ?)
+            ON CONFLICT(regno) DO UPDATE SET
+                prev_cgpa=excluded.prev_cgpa,
+                prev_credits=excluded.prev_credits
+        ''', [data.regno, data.cgpa, data.credits])
+        
+    return success_response({
+        "student_regno": data.regno,
+        "prev_cgpa": data.cgpa,
+        "prev_credits": data.credits,
+        "message": "Manual data saved successfully."
+    })
+
 @app.post("/uploadPreviousSem/")
 async def upload_previous_sem(file: UploadFile = File(...)):
     """Uploads a previous semester marksheet to extract and store CGPA and Credits"""
@@ -566,16 +602,15 @@ async def upload_previous_sem(file: UploadFile = File(...)):
         if not regno or cgpa <= 0 or credits <= 0:
             raise OCRError("Could not extract required fields (regno, cgpa, total_credits) from the image.")
             
-        with get_db_connection() as conn:
-            conn.execute('''
+        with get_db_client() as client:
+            client.execute('''
                 INSERT INTO students (regno, name, prev_cgpa, prev_credits)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(regno) DO UPDATE SET
                     name=excluded.name,
                     prev_cgpa=excluded.prev_cgpa,
                     prev_credits=excluded.prev_credits
-            ''', (regno, name, cgpa, credits))
-            conn.commit()
+            ''', [regno, name, cgpa, credits])
             
         return success_response({
             "student_regno": regno,
@@ -597,70 +632,66 @@ async def gpa_calculation(file: UploadFile = File(...)):
     ocr_text = get_cached_or_run_ocr(image_bytes, OCR_PROMPT, "current_sem")
     results = calculate_gpa_logic(ocr_text)
     
-    with get_db_connection() as conn:
-        for student in results:
-            regno = student["student_regno"]
-            name = student["student_name"]
-            current_gpa = student["gpa"]
-            current_credits = student["current_credits"]
-            results_json = json.dumps(student["results"])
-            
-            cursor = conn.execute("SELECT prev_cgpa, prev_credits FROM students WHERE regno = ?", (regno,))
-            row = cursor.fetchone()
-            
-            if row and row["prev_credits"] is not None and row["prev_cgpa"] is not None:
-                prev_cgpa = float(row["prev_cgpa"])
-                prev_credits = int(row["prev_credits"])
+    try:
+        with get_db_client() as client:
+            for student in results:
+                regno = student["student_regno"]
+                name = student["student_name"]
+                current_gpa = student["gpa"]
+                current_credits = student["current_credits"]
+                results_json = json.dumps(student["results"])
                 
-                # Formula implementation
-                new_cgpa = ((prev_credits * prev_cgpa) + (current_credits * current_gpa)) / (prev_credits + current_credits)
-                new_cgpa = round(new_cgpa, 2)
+                db_result = client.execute("SELECT prev_cgpa, prev_credits FROM students WHERE regno = ?", [regno])
+                row = db_result.rows[0] if db_result.rows else None
                 
-                student["prev_cgpa"] = prev_cgpa
-                student["prev_credits"] = prev_credits
-                student["new_cgpa"] = new_cgpa
-            else:
-                new_cgpa = current_gpa
-                student["new_cgpa"] = new_cgpa
-                
-            conn.execute('''
-                INSERT INTO students (regno, name, current_gpa, current_credits, new_cgpa, results_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(regno) DO UPDATE SET
-                    name=excluded.name,
-                    current_gpa=excluded.current_gpa,
-                    current_credits=excluded.current_credits,
-                    new_cgpa=excluded.new_cgpa,
-                    results_json=excluded.results_json
-            ''', (regno, name, current_gpa, current_credits, new_cgpa, results_json))
-        conn.commit()
+                if row and row["prev_credits"] is not None and row["prev_cgpa"] is not None:
+                    prev_cgpa = float(row["prev_cgpa"])
+                    prev_credits = int(row["prev_credits"])
+                    
+                    new_cgpa = ((prev_credits * prev_cgpa) + (current_credits * current_gpa)) / (prev_credits + current_credits)
+                    new_cgpa = round(new_cgpa, 2)
+                    
+                    student["prev_cgpa"] = prev_cgpa
+                    student["prev_credits"] = prev_credits
+                    student["new_cgpa"] = new_cgpa
+                else:
+                    new_cgpa = current_gpa
+                    student["new_cgpa"] = new_cgpa
+                    
+                client.execute('''
+                    INSERT INTO students (regno, name, current_gpa, current_credits, new_cgpa, results_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(regno) DO UPDATE SET
+                        name=excluded.name,
+                        current_gpa=excluded.current_gpa,
+                        current_credits=excluded.current_credits,
+                        new_cgpa=excluded.new_cgpa,
+                        results_json=excluded.results_json
+                ''', [regno, name, current_gpa, current_credits, new_cgpa, results_json])
+    except ExternalServiceError:
+        pass # Ignore DB credential failures here so the OCR calculation can still return to the user.
+    except Exception as e:
+        logger.error(f"Error updating Turso DB in calculateGpa: {e}")
         
     return success_response(results)
 
 @app.get("/student/{regno}")
 def get_student(regno: str):
     """Retrieve full student record and GPA calculations by register number."""
-    with get_db_connection() as conn:
-        cursor = conn.execute("SELECT * FROM students WHERE regno = ?", (regno,))
-        row = cursor.fetchone()
+    with get_db_client() as client:
+        result = client.execute("SELECT * FROM students WHERE regno = ?", [regno])
         
-        if not row:
+        if not result.rows:
             raise AppException("STUDENT_NOT_FOUND", f"No data found for register number: {regno}", 404)
             
-        data = dict(row)
+        row = result.rows[0]
+        # Safely convert the Turso Row object into a python dictionary mapping
+        data = dict(zip(result.columns, row))
+        
         if data.get("results_json"):
             data["results"] = json.loads(data["results_json"])
             
-        del data["results_json"]
+        if "results_json" in data:
+            del data["results_json"]
         
         return success_response(data)
-
-@app.get("/debug/metadata")
-def debug_metadata():
-    return success_response({
-        "grade_points_count": len(grade_points_map),
-        "subjects_count": len(subject_metadata),
-        "sample_grades": dict(list(grade_points_map.items())[:5]),
-        "sample_subjects": dict(list(subject_metadata.items())[:5]),
-        "api_keys_count": len(GROQ_API_KEYS)
-    })
