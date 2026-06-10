@@ -4,7 +4,7 @@ const CONFIG = {
   API_BASE_URL: "https://middleman-git-api-jayadithyas-projects-46b8b61e.vercel.app",
   MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
   ALLOWED_TYPES: ["image/png", "image/jpg", "image/jpeg"],
-  REQUEST_TIMEOUT: 120000, 
+  REQUEST_TIMEOUT: 120000,
 };
 
 // ============== ERROR CLASSES ==============
@@ -66,7 +66,7 @@ const elements = {
   navCalc: document.getElementById("nav-calc"),
   navPrev: document.getElementById("nav-prev"),
   navSearch: document.getElementById("nav-search"),
-  
+
   // Views
   viewCalc: document.getElementById("view-calc"),
   viewPrev: document.getElementById("view-prev"),
@@ -78,7 +78,7 @@ const elements = {
   studentName: document.getElementById("stdname"),
   studentRegno: document.getElementById("stdregno"),
   resultDisplay: document.getElementById("resultDisplay"),
-  
+
   // Calculate Controls
   dropZone: document.getElementById("dropzone"),
   preview: document.getElementById("preview"),
@@ -115,8 +115,11 @@ const elements = {
 
 let state = {
   globalResponse: [],
+  // FIX: track whether we came from a multi-student result so goBackBtn works correctly
   multipleStudentResults: false,
   lastFile: null,
+  // FIX: track which view was active before loading/error so we can restore it
+  activeView: "calc",
 };
 
 // ============== VIEW LOGIC ==============
@@ -130,26 +133,30 @@ function switchView(viewName) {
   elements.selectRegScreen.classList.add("hidden");
 
   // Reset Nav UI
-  [elements.navCalc, elements.navPrev, elements.navSearch].forEach(nav => {
+  [elements.navCalc, elements.navPrev, elements.navSearch].forEach((nav) => {
     nav.classList.remove("nav-active", "text-white");
     nav.classList.add("text-white/50");
   });
 
-  if (viewName === 'calc') {
+  if (viewName === "calc") {
     elements.viewCalc.classList.remove("hidden");
     elements.navCalc.classList.add("nav-active", "text-white");
     elements.navCalc.classList.remove("text-white/50");
-  } else if (viewName === 'prev') {
+    state.activeView = "calc";
+  } else if (viewName === "prev") {
     elements.viewPrev.classList.remove("hidden");
     elements.navPrev.classList.add("nav-active", "text-white");
     elements.navPrev.classList.remove("text-white/50");
-  } else if (viewName === 'search') {
+    state.activeView = "prev";
+  } else if (viewName === "search") {
     elements.viewSearch.classList.remove("hidden");
     elements.navSearch.classList.add("nav-active", "text-white");
     elements.navSearch.classList.remove("text-white/50");
-  } else if (viewName === 'results') {
+    state.activeView = "search";
+  } else if (viewName === "results") {
     elements.resultSection.classList.remove("hidden");
-  } else if (viewName === 'select-reg') {
+    // Don't update activeView — results is a transient overlay over the last tab
+  } else if (viewName === "select-reg") {
     elements.selectRegScreen.classList.remove("hidden");
   }
 }
@@ -162,7 +169,8 @@ function validateFile(file) {
     throw new ValidationError(ERROR_MESSAGES.INVALID_FILE_TYPE);
   }
   if (file.size === 0) throw new ValidationError(ERROR_MESSAGES.EMPTY_FILE);
-  if (file.size > CONFIG.MAX_FILE_SIZE) throw new ValidationError(ERROR_MESSAGES.FILE_TOO_LARGE);
+  if (file.size > CONFIG.MAX_FILE_SIZE)
+    throw new ValidationError(ERROR_MESSAGES.FILE_TOO_LARGE);
   return true;
 }
 
@@ -178,15 +186,21 @@ async function fetchWithTimeout(url, options, timeout = CONFIG.REQUEST_TIMEOUT) 
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error.name === "AbortError") throw new NetworkError(ERROR_MESSAGES.TIMEOUT_ERROR);
-    throw error;
+    if (error.name === "AbortError")
+      throw new NetworkError(ERROR_MESSAGES.TIMEOUT_ERROR);
+    throw new NetworkError(ERROR_MESSAGES.NETWORK_ERROR);
   }
 }
 
 async function parseAPIResponse(response) {
   const contentType = response.headers.get("content-type");
   if (!contentType || !contentType.includes("application/json")) {
-    throw new APIError("INVALID_RESPONSE", "Server returned an invalid response", {}, response.status);
+    throw new APIError(
+      "INVALID_RESPONSE",
+      "Server returned an invalid response",
+      {},
+      response.status
+    );
   }
   return await response.json();
 }
@@ -196,12 +210,27 @@ async function handleAPIError(response) {
     const errorData = await parseAPIResponse(response);
     if (errorData.error) {
       const { code, message, details } = errorData.error;
-      throw new APIError(code, ERROR_MESSAGES[code] || message, details, response.status);
+      throw new APIError(
+        code,
+        ERROR_MESSAGES[code] || message,
+        details,
+        response.status
+      );
     }
-    throw new APIError("UNKNOWN_ERROR", ERROR_MESSAGES.UNKNOWN_ERROR, {}, response.status);
+    throw new APIError(
+      "UNKNOWN_ERROR",
+      ERROR_MESSAGES.UNKNOWN_ERROR,
+      {},
+      response.status
+    );
   } catch (error) {
     if (error instanceof APIError) throw error;
-    throw new APIError("HTTP_ERROR", `Server error (${response.status})`, {}, response.status);
+    throw new APIError(
+      "HTTP_ERROR",
+      `Server error (${response.status})`,
+      {},
+      response.status
+    );
   }
 }
 
@@ -209,7 +238,10 @@ async function handleAPIError(response) {
 async function uploadImage(file) {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetchWithTimeout(`${CONFIG.API_BASE_URL}/calculateGpa/`, { method: "POST", body: formData });
+  const response = await fetchWithTimeout(
+    `${CONFIG.API_BASE_URL}/calculateGpa/`,
+    { method: "POST", body: formData }
+  );
   if (!response.ok) await handleAPIError(response);
   const data = await parseAPIResponse(response);
   if (!data.success) throw new APIError(data.error.code, data.error.message);
@@ -219,7 +251,10 @@ async function uploadImage(file) {
 async function uploadPreviousImage(file) {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetchWithTimeout(`${CONFIG.API_BASE_URL}/uploadPreviousSem/`, { method: "POST", body: formData });
+  const response = await fetchWithTimeout(
+    `${CONFIG.API_BASE_URL}/uploadPreviousSem/`,
+    { method: "POST", body: formData }
+  );
   if (!response.ok) await handleAPIError(response);
   const data = await parseAPIResponse(response);
   if (!data.success) throw new APIError(data.error.code, data.error.message);
@@ -227,7 +262,10 @@ async function uploadPreviousImage(file) {
 }
 
 async function searchStudentData(regno) {
-  const response = await fetchWithTimeout(`${CONFIG.API_BASE_URL}/student/${regno}`, { method: "GET" });
+  const response = await fetchWithTimeout(
+    `${CONFIG.API_BASE_URL}/student/${regno}`,
+    { method: "GET" }
+  );
   if (!response.ok) await handleAPIError(response);
   const data = await parseAPIResponse(response);
   if (!data.success) throw new APIError(data.error.code, data.error.message);
@@ -235,11 +273,14 @@ async function searchStudentData(regno) {
 }
 
 async function saveManualPrevData(regno, cgpa, credits) {
-  const response = await fetchWithTimeout(`${CONFIG.API_BASE_URL}/manualPreviousData/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ regno, cgpa, credits })
-  });
+  const response = await fetchWithTimeout(
+    `${CONFIG.API_BASE_URL}/manualPreviousData/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ regno, cgpa, credits }),
+    }
+  );
   if (!response.ok) await handleAPIError(response);
   const data = await parseAPIResponse(response);
   if (!data.success) throw new APIError(data.error.code, data.error.message);
@@ -261,10 +302,12 @@ function hideLoading() {
   elements.loadingScreen.classList.add("hidden");
 }
 
+// FIX: showError no longer hard-codes switchView('calc').
+// It restores the view the user was actually on before loading started.
 function showError(error) {
   hideLoading();
-  switchView('calc'); // Default fallback on error
-  
+  switchView(state.activeView);
+
   let message = error.message || ERROR_MESSAGES.UNKNOWN_ERROR;
   elements.errorMessage.textContent = message;
   elements.errorToast.classList.remove("hidden");
@@ -275,7 +318,9 @@ function dismissError() {
 }
 
 function resetUpload() {
-  elements.preview.querySelectorAll("img").forEach((img) => URL.revokeObjectURL(img.src));
+  elements.preview.querySelectorAll("img").forEach((img) =>
+    URL.revokeObjectURL(img.src)
+  );
   elements.preview.innerHTML = "";
   elements.preview.classList.add("hidden");
   elements.uploadText.classList.remove("hidden");
@@ -297,19 +342,19 @@ function displayImagePreview(files) {
   }
   state.lastFile = file;
   elements.preview.innerHTML = "";
-  
+
   const li = document.createElement("li");
   const img = document.createElement("img");
-  
+
   elements.uploadText.classList.add("hidden");
   img.src = URL.createObjectURL(file);
   elements.preview.classList.remove("hidden");
   li.classList.add("w-full", "h-full", "p-1");
   img.classList.add("w-full", "h-full", "object-contain", "rounded-lg");
-  
+
   li.appendChild(img);
   elements.preview.appendChild(li);
-  
+
   elements.calBtn.disabled = false;
   elements.clrBtn.disabled = false;
 }
@@ -318,7 +363,7 @@ function showSelectScreen(data) {
   hideLoading();
   state.globalResponse = data;
   state.multipleStudentResults = true;
-  
+
   elements.selectRegno.innerHTML = "";
   data.forEach((student, index) => {
     const option = document.createElement("option");
@@ -326,20 +371,24 @@ function showSelectScreen(data) {
     option.value = index;
     elements.selectRegno.appendChild(option);
   });
-  
-  switchView('select-reg');
+
+  switchView("select-reg");
 }
 
 function displayResult(data) {
   hideLoading();
-  switchView('results');
-  
-  elements.studentRegno.textContent = data.student_regno;
-  elements.studentName.textContent = data.student_name || "Unknown";
-  
-  let gpaDisplay = data.gpa !== undefined ? Number(data.gpa).toFixed(2) : '-';
-  let curCredits = data.current_credits !== undefined ? data.current_credits : '-';
-  
+  switchView("results");
+
+  elements.studentRegno.textContent = data.student_regno || data.regno || "";
+  elements.studentName.textContent =
+    data.student_name || data.name || "Unknown";
+
+  // FIX: guard against null/undefined gpa and current_credits
+  let gpaDisplay =
+    data.gpa != null ? Number(data.gpa).toFixed(2) : "N/A";
+  let curCredits =
+    data.current_credits != null ? data.current_credits : "N/A";
+
   let resultsHTML = `
     <li class="w-full bg-white rounded-xl flex flex-col px-6 py-6 gap-2 text-black shadow-lg">
       <div class="flex justify-between items-center w-full">
@@ -351,8 +400,8 @@ function displayResult(data) {
         <h1 class="text-lg font-bold">${curCredits}</h1>
       </div>
   `;
-  
-  if (data.prev_cgpa !== undefined && data.prev_credits !== undefined) {
+
+  if (data.prev_cgpa != null && data.prev_credits != null) {
     resultsHTML += `
       <hr class="border-black/10 my-3">
       <div class="flex justify-between items-center w-full text-gray-700">
@@ -366,7 +415,7 @@ function displayResult(data) {
     `;
   }
 
-  if (data.new_cgpa !== undefined) {
+  if (data.new_cgpa != null) {
     resultsHTML += `
       <hr class="border-black/10 my-3">
       <div class="flex justify-between items-center w-full text-blue-700">
@@ -375,9 +424,9 @@ function displayResult(data) {
       </div>
     `;
   }
-  
+
   resultsHTML += `</li>`;
-  
+
   if (data.results && data.results.length > 0) {
     data.results.forEach((result) => {
       resultsHTML += `
@@ -396,42 +445,71 @@ function displayResult(data) {
   } else {
     resultsHTML += `<li class="text-white/50 mt-4 text-center">No subject details available for this record.</li>`;
   }
-  
+
   elements.resultDisplay.innerHTML = resultsHTML;
+}
+
+// ============== SUCCESS TOAST ==============
+
+function showSuccess(message) {
+  // FIX: replace alert() with an inline non-blocking success notice
+  const toast = document.createElement("div");
+  toast.className =
+    "fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-600 text-white text-sm font-bold px-5 py-3 rounded-full shadow-lg z-50 transition-opacity";
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 400);
+  }, 3000);
 }
 
 // ============== EVENT HANDLERS ==============
 
 function initializeEventListeners() {
   // Navigation Tabs
-  elements.navCalc.addEventListener('click', () => switchView('calc'));
-  elements.navPrev.addEventListener('click', () => switchView('prev'));
-  elements.navSearch.addEventListener('click', () => switchView('search'));
+  elements.navCalc.addEventListener("click", () => switchView("calc"));
+  elements.navPrev.addEventListener("click", () => switchView("prev"));
+  elements.navSearch.addEventListener("click", () => switchView("search"));
 
-  // Main Dropzone
-  elements.dropZone.addEventListener("click", () => elements.fileInput.click());
+  // Main Dropzone — click + drag-and-drop
+  elements.dropZone.addEventListener("click", () =>
+    elements.fileInput.click()
+  );
   elements.dropZone.addEventListener("dragover", (e) => e.preventDefault());
   elements.dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
-    const files = [...e.dataTransfer.items].map((item) => item.getAsFile()).filter(f => f);
+    const files = [...e.dataTransfer.items]
+      .map((item) => item.getAsFile())
+      .filter((f) => f);
     displayImagePreview(files);
   });
-  elements.fileInput.addEventListener("change", (e) => displayImagePreview(e.target.files));
-  
+  elements.fileInput.addEventListener("change", (e) =>
+    displayImagePreview(e.target.files)
+  );
+
   // Calculate GPA Buttons
   elements.clrBtn.addEventListener("click", resetUpload);
   elements.calBtn.addEventListener("click", async (e) => {
     e.preventDefault();
-    if (!elements.fileInput.files[0]) return showError(new ValidationError("Please select an image first"));
-    
+
+    // FIX: use state.lastFile instead of reading fileInput.files[0] directly,
+    // because retryBtn also triggers this path and the file input may be stale.
+    const file = state.lastFile;
+    if (!file)
+      return showError(new ValidationError("Please select an image first"));
+
     showLoading();
     try {
-      const results = await uploadImage(elements.fileInput.files[0]);
-      if (!results || results.length === 0) throw new APIError("NO_RESULTS", ERROR_MESSAGES.NO_RESULTS);
-      
+      const results = await uploadImage(file);
+      if (!results || results.length === 0)
+        throw new APIError("NO_RESULTS", ERROR_MESSAGES.NO_RESULTS);
+
       if (results.length > 1) {
         showSelectScreen(results);
       } else {
+        // FIX: reset multipleStudentResults so goBackBtn goes to calc, not select-reg
+        state.multipleStudentResults = false;
         displayResult(results[0]);
       }
     } catch (error) {
@@ -452,50 +530,62 @@ function initializeEventListeners() {
     showLoading();
     try {
       const result = await saveManualPrevData(regno, cgpa, credits);
-      alert(`Success! Saved ${result.prev_cgpa} CGPA for ${result.student_regno}`);
-      elements.prevRegno.value = ''; elements.prevCgpa.value = ''; elements.prevCredits.value = '';
-      switchView('calc');
-    } catch(error) {
+      // FIX: hideLoading before switching view, and use non-blocking toast
+      hideLoading();
+      switchView("calc");
+      showSuccess(
+        `Saved ${result.prev_cgpa} CGPA for ${result.student_regno}`
+      );
+      elements.prevRegno.value = "";
+      elements.prevCgpa.value = "";
+      elements.prevCredits.value = "";
+    } catch (error) {
       showError(error);
     }
   });
 
-  // Prev Data Image Upload
-  elements.prevDropzone.addEventListener("click", () => elements.prevFileInput.click());
+  // Prev Data Image Upload — click + drag-and-drop
+  // FIX: added dragover/drop handlers that were missing
+  elements.prevDropzone.addEventListener("click", () =>
+    elements.prevFileInput.click()
+  );
+  elements.prevDropzone.addEventListener("dragover", (e) => e.preventDefault());
+  elements.prevDropzone.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    const files = [...e.dataTransfer.items]
+      .map((item) => item.getAsFile())
+      .filter((f) => f);
+    if (!files.length) return;
+    await handlePrevFileUpload(files[0]);
+  });
   elements.prevFileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    showLoading();
-    try {
-      validateFile(file);
-      const result = await uploadPreviousImage(file);
-      alert(`Successfully Extracted! CGPA: ${result.prev_cgpa}, Credits: ${result.prev_credits}`);
-      elements.prevFileInput.value = '';
-      switchView('calc');
-    } catch(error) {
-      showError(error);
-      elements.prevFileInput.value = '';
-    }
+    await handlePrevFileUpload(file);
   });
 
   // Search DB
   elements.searchBtn.addEventListener("click", async () => {
     const regno = elements.searchRegno.value.trim();
-    if (!regno) return showError(new ValidationError("Please enter a register number"));
+    if (!regno)
+      return showError(new ValidationError("Please enter a register number"));
 
     showLoading();
     try {
       const studentData = await searchStudentData(regno);
-      // Map properties to match what displayResult expects
+      // FIX: map all DB field names to what displayResult expects; reset multi flag
+      state.multipleStudentResults = false;
       displayResult({
-        ...studentData,
         student_regno: studentData.regno,
         student_name: studentData.name,
-        gpa: studentData.current_gpa,
-        results: studentData.results || []
+        gpa: studentData.current_gpa,          // may be null — displayResult now guards this
+        current_credits: studentData.current_credits,
+        prev_cgpa: studentData.prev_cgpa,
+        prev_credits: studentData.prev_credits,
+        new_cgpa: studentData.new_cgpa,
+        results: studentData.results || [],
       });
-    } catch(error) {
+    } catch (error) {
       showError(error);
     }
   });
@@ -503,20 +593,57 @@ function initializeEventListeners() {
   // Results & Modals
   elements.viewGpa.addEventListener("click", () => {
     const selected = state.globalResponse[elements.selectRegno.value];
-    if (selected) displayResult(selected);
+    if (selected) {
+      state.multipleStudentResults = true; // came from multi-select, back should go there
+      displayResult(selected);
+    }
   });
-  
+
+  // FIX: goBackBtn now correctly checks multipleStudentResults
   elements.goBackBtn.addEventListener("click", () => {
-    if (state.multipleStudentResults) switchView('select-reg');
-    else switchView('calc');
+    if (state.multipleStudentResults) {
+      switchView("select-reg");
+    } else {
+      switchView(state.activeView);
+    }
   });
-  
-  elements.gotoHome.addEventListener("click", () => switchView('calc'));
-  elements.retryBtn.addEventListener("click", () => { dismissError(); if (state.lastFile) elements.calBtn.click(); });
+
+  elements.gotoHome.addEventListener("click", () => {
+    state.multipleStudentResults = false;
+    switchView("calc");
+  });
+
+  // FIX: retryBtn now triggers calBtn click (which reads state.lastFile, not fileInput.files)
+  elements.retryBtn.addEventListener("click", () => {
+    dismissError();
+    if (state.lastFile) {
+      elements.calBtn.click();
+    }
+  });
+
   elements.closeToastBtn.addEventListener("click", dismissError);
+}
+
+// FIX: extracted prev-file upload into a reusable function used by both
+// the file input change event AND the newly-added drag-and-drop handler
+async function handlePrevFileUpload(file) {
+  showLoading();
+  try {
+    validateFile(file);
+    const result = await uploadPreviousImage(file);
+    hideLoading();
+    switchView("calc");
+    showSuccess(
+      `Extracted! CGPA: ${result.prev_cgpa}, Credits: ${result.prev_credits}`
+    );
+    elements.prevFileInput.value = "";
+  } catch (error) {
+    showError(error);
+    elements.prevFileInput.value = "";
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeEventListeners();
-  switchView('calc');
+  switchView("calc");
 });
