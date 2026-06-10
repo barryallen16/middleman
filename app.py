@@ -451,9 +451,28 @@ def health_check():
     })
 
 @app.post("/calculateGpa/")
-async def gpa_calculation(file: UploadFile = File(...)):
+def gpa_calculation(file: UploadFile = File(...)):
+    """
+    Synchronous definition offloads processing to background worker threads,
+    preventing asynchronous event loop starvation during long AI calls.
+    """
     validate_upload_file(file)
-    image_bytes = await validate_file_size(file)
+    
+    # Read file bytes synchronously to maintain optimal thread alignment
+    image_bytes = file.file.read()
+    
+    # Raw validation check optimized for Vercel's absolute payload boundaries
+    if len(image_bytes) == 0:
+        raise ValidationError("Uploaded file is empty")
+        
+    if len(image_bytes) > 4 * 1024 * 1024:  # Hard limit at 4MB to protect Vercel's 4.5MB ceiling
+        size_mb = len(image_bytes) / (1024 * 1024)
+        raise ValidationError(
+            f"File too large: {size_mb:.2f}MB. Maximum allowed file size for Vercel functions is 4MB",
+            {"file_size_mb": round(size_mb, 2), "max_size_mb": 4}
+        )
+    
+    # Execute image analysis
     ocr_text = do_ocr(image_bytes)
     results = calculate_gpa_logic(ocr_text)
     return success_response(results)
