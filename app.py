@@ -64,23 +64,19 @@ def _typed_arg(value: Any) -> Dict:
     """
     Wrap a Python value into a Turso typed-arg dict.
 
-    Turso HTTP API wire format (confirmed from error messages):
-      null    -> {"type": "null"}                      -- no "value" key at all
-      integer -> {"type": "integer", "value": 42}      -- native JSON integer
-      float   -> {"type": "float",   "value": 8.0}     -- native JSON float (NOT a string)
-      text    -> {"type": "text",    "value": "hello"}  -- JSON string
-
-    Sending numeric values as strings (e.g. "value": "8.0") causes:
-      HTTP 400 -- "invalid type: string \"8.0\", expected f64"
+    Turso HTTP API spec for null:
+      CORRECT:   {"type": "null"}            — no "value" key
+      INCORRECT: {"type": "null", "value": null}  — JSON null is rejected (HTTP 400)
+    All other types must carry "value" as a STRING, never a bare number/bool.
     """
     if value is None:
-        return {"type": "null"}
+        return {"type": "null"}                          # FIX: omit "value" key entirely
     if isinstance(value, bool):
-        return {"type": "integer", "value": int(value)}   # native int, not str
+        return {"type": "integer", "value": str(int(value))}
     if isinstance(value, int):
-        return {"type": "integer", "value": value}        # native int, not str
+        return {"type": "integer", "value": str(value)}
     if isinstance(value, float):
-        return {"type": "float",   "value": value}        # native float, not str
+        return {"type": "float",   "value": str(value)}
     return {"type": "text", "value": str(value)}
 
 
