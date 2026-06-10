@@ -2,14 +2,12 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from groq import Groq
-import base64
+from google import genai
+from google.genai import types
 import os 
 from dotenv import load_dotenv
 import json
 import logging
-import sqlite3
-import hashlib
 from typing import Optional, Dict, Any, List
 
 # Configure logging
@@ -23,14 +21,17 @@ load_dotenv()
 
 # ============== API KEYS CONFIGURATION ==============
 
-GROQ_API_KEYS_STR = os.getenv('GROQ_API_KEYS', '')
-GROQ_API_KEYS = [key.strip() for key in GROQ_API_KEYS_STR.split(',') if key.strip()]
+# Load multiple Gemini API keys from environment (comma-separated)
+# Format in .env: GEMINI_API_KEYS=key1,key2,key3
+GEMINI_API_KEYS_STR = os.getenv('GEMINI_API_KEYS', '')
+GEMINI_API_KEYS = [key.strip() for key in GEMINI_API_KEYS_STR.split(',') if key.strip()]
 
-SINGLE_GROQ_KEY = os.getenv('RESULTS_PROJ_APIKEY')
-if SINGLE_GROQ_KEY and SINGLE_GROQ_KEY not in GROQ_API_KEYS:
-    GROQ_API_KEYS.insert(0, SINGLE_GROQ_KEY)
+# Fallback: Also check for single key (backward compatibility)
+SINGLE_GEMINI_KEY = os.getenv('RESULTS_PROJ_APIKEY')
+if SINGLE_GEMINI_KEY and SINGLE_GEMINI_KEY not in GEMINI_API_KEYS:
+    GEMINI_API_KEYS.insert(0, SINGLE_GEMINI_KEY)
 
-logger.info(f"Loaded {len(GROQ_API_KEYS)} API keys")
+logger.info(f"Loaded {len(GEMINI_API_KEYS)} Gemini API keys")
 
 app = FastAPI()
 
@@ -41,43 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False
 )
-
-# ============== DATABASE CONFIGURATION ==============
-
-DB_FILE = "student_data.db"
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    with get_db_connection() as conn:
-        # Table to store student records and computed GPAs
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS students (
-                regno TEXT PRIMARY KEY,
-                name TEXT,
-                prev_cgpa REAL,
-                prev_credits INTEGER,
-                current_gpa REAL,
-                current_credits INTEGER,
-                new_cgpa REAL,
-                results_json TEXT
-            )
-        ''')
-        # Table to cache OCR results using SHA256 image hashes
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS image_cache (
-                image_hash TEXT,
-                prompt_type TEXT,
-                ocr_result TEXT,
-                PRIMARY KEY (image_hash, prompt_type)
-            )
-        ''')
-        conn.commit()
-
-init_db()
 
 # ============== CUSTOM EXCEPTIONS ==============
 
@@ -188,6 +152,8 @@ async def global_exception_handler(request: Request, exc: Exception):
             }
         }
     )
+
+# ============== RESPONSE HELPERS ==============
 
 def success_response(data: Any) -> Dict:
     return {
@@ -337,7 +303,6 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
                 gpa = 0.0
             
             current_dict["gpa"] = gpa
-            current_dict["current_credits"] = total_credits
             
             if current_dict["results"]:
                 final_list.append(current_dict)
@@ -360,7 +325,7 @@ def calculate_gpa_logic(jsonl_string: str) -> List[Dict]:
     
     return final_list
 
-# ============== OCR PROMPTS ==============
+# ============== OCR PROMPT ==============
 
 OCR_PROMPT = """
 **System Role:**
@@ -378,125 +343,76 @@ Extract student registration details and examination results from the provided i
 
 **Extraction Rules:**
 1.  **Distinguish Characters:** Be extremely careful with 'O' (letter) versus '0' (zero).
-2.  **Index 6 Correction:** If you detect the number '1' at index 6 of any `subject_code`, you must correct it to 'I'.
+2.  **Index 6 Correction:**  If you detect the number '1' at index 6 of any `subject_code, you must correct it to 'I'.
 3.  **Multiple Students:** If the image lists multiple students, generate one JSON line per student.
 4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object on a single line:
     {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
 """
 
-PREV_SEM_OCR_PROMPT = """
-**System Role:**
-You are a specialized OCR extraction engine designed to process academic marksheets. Your output must be strictly valid machine-readable code.
+# ============== GEMINI OCR WITH KEY ROTATION ==============
 
-**Task:**
-Extract student registration details, the final cumulative CGPA, and the total credits earned from the bottom of the marksheet.
-
-**Output Format Rules:**
-1.  **Format:** Return the data in **JSON** format on a single line.
-2.  **No Markdown:** Do not use markdown blocks (like ```json). Just return the raw JSON object.
-3.  **Schema:** Follow this exact JSON structure:
-    {"student_regno": "STRING", "student_name": "STRING", "cgpa": FLOAT, "total_credits": INTEGER}
-4.  **Error Handling:** If the text is too blurry, cropped, or illegible to extract data with high confidence, return exactly this JSON object:
-    {"error": "IMAGE_UNCLEAR", "message": "Please upload a clearer image."}
-"""
-
-# ============== OCR WITH KEY ROTATION ==============
-
-def do_ocr(image_bytes: bytes, prompt: str) -> str:
+def do_ocr(image_bytes: bytes) -> str:
     """
-    Perform OCR with automatic API key rotation.
+    Perform OCR using Gemini API with automatic key rotation.
+    If one key fails (rate limit, quota exceeded), try the next one.
     """
-    if not GROQ_API_KEYS:
-        raise ExternalServiceError("LLM API", "No API keys configured")
+    if not GEMINI_API_KEYS:
+        raise ExternalServiceError("Gemini AI", "No API keys configured")
     
     last_error = None
-    base64_image = base64.b64encode(image_bytes).decode('utf-8')
     
-    for i, api_key in enumerate(GROQ_API_KEYS):
+    for i, api_key in enumerate(GEMINI_API_KEYS):
         try:
-            logger.info(f"Trying API key {i + 1}/{len(GROQ_API_KEYS)}")
+            logger.info(f"Trying Gemini API key {i + 1}/{len(GEMINI_API_KEYS)}")
             
-            client = Groq(api_key=api_key)
+            # Create client with current key
+            client = genai.Client(api_key=api_key)
             
-            response = client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text", 
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                temperature=0.1,  
-                max_completion_tokens=1024,
+            # Make the API call
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                    OCR_PROMPT
+                ]
             )
             
-            extracted_text = response.choices[0].message.content
-            
-            if not extracted_text:
+            if not response.text:
                 raise OCRError("No text was extracted from the image")
             
-            logger.info(f"OCR successful with key {i + 1}")
-            return extracted_text
+            logger.info(f"Gemini OCR successful with key {i + 1}")
+            logger.info(f"OCR Response: {response.text[:200]}...")
+            return response.text
             
         except OCRError:
+            # OCR errors (like unclear image) should not trigger key rotation
             raise
             
         except Exception as e:
             error_str = str(e).lower()
             
+            # Check if it's a rate limit or quota error (should try next key)
             if any(keyword in error_str for keyword in ['rate', 'limit', 'quota', '429', '503', 'exhausted', 'exceeded']):
-                logger.warning(f"API key {i + 1} rate limited/exhausted: {e}")
+                logger.warning(f"Gemini API key {i + 1} rate limited/exhausted: {e}")
                 last_error = e
                 continue
             
-            logger.warning(f"API key {i + 1} failed: {e}")
+            # For other errors, also try next key
+            logger.warning(f"Gemini API key {i + 1} failed: {e}")
             last_error = e
             continue
     
-    logger.error(f"All {len(GROQ_API_KEYS)} API keys exhausted")
+    # All keys exhausted
+    logger.error(f"All {len(GEMINI_API_KEYS)} Gemini API keys exhausted")
     raise AllKeysExhaustedError()
-
-def get_cached_or_run_ocr(image_bytes: bytes, prompt: str, prompt_type: str) -> str:
-    img_hash = hashlib.sha256(image_bytes).hexdigest()
-    
-    with get_db_connection() as conn:
-        cursor = conn.execute(
-            "SELECT ocr_result FROM image_cache WHERE image_hash = ? AND prompt_type = ?",
-            (img_hash, prompt_type)
-        )
-        row = cursor.fetchone()
-        if row:
-            logger.info(f"Cache hit for image ({prompt_type}). Skipping API call.")
-            return row['ocr_result']
-            
-    ocr_result = do_ocr(image_bytes, prompt)
-    
-    with get_db_connection() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO image_cache (image_hash, prompt_type, ocr_result) VALUES (?, ?, ?)",
-            (img_hash, prompt_type, ocr_result)
-        )
-        conn.commit()
-        
-    return ocr_result
 
 # ============== VALIDATION HELPERS ==============
 
-MAX_FILE_SIZE = 5 * 1024 * 1024  
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png"]
 
 def validate_upload_file(file: UploadFile):
+    """Validate the uploaded file"""
     if not file.content_type:
         raise ValidationError("Could not determine file type")
     
@@ -507,6 +423,7 @@ def validate_upload_file(file: UploadFile):
         )
 
 async def validate_file_size(file: UploadFile) -> bytes:
+    """Read and validate file size"""
     contents = await file.read()
     
     if len(contents) == 0:
@@ -528,139 +445,52 @@ def root():
     return success_response({
         "status": "active",
         "message": "MGR GPA Calculator API",
-        "version": "1.1.0"
+        "version": "1.0.0"
     })
 
 @app.get("/health")
 def health_check():
+    """Health check endpoint for monitoring"""
     return success_response({
         "status": "healthy",
         "grades_loaded": len(grade_points_map),
         "subjects_loaded": len(subject_metadata),
-        "api_keys_configured": len(GROQ_API_KEYS)
+        "api_keys_configured": len(GEMINI_API_KEYS)
     })
-
-@app.post("/uploadPreviousSem/")
-async def upload_previous_sem(file: UploadFile = File(...)):
-    """Uploads a previous semester marksheet to extract and store CGPA and Credits"""
-    validate_upload_file(file)
-    image_bytes = await validate_file_size(file)
-    
-    ocr_text = get_cached_or_run_ocr(image_bytes, PREV_SEM_OCR_PROMPT, "prev_sem")
-    cleaned_text = clean_llm_json_response(ocr_text)
-    
-    try:
-        data = json.loads(cleaned_text)
-        if "error" in data:
-            raise OCRError(data.get("message", "Image could not be processed"))
-        
-        regno = data.get("student_regno")
-        name = data.get("student_name", "Unknown")
-        
-        try:
-            cgpa = float(data.get("cgpa", 0))
-            credits = int(data.get("total_credits", 0))
-        except (ValueError, TypeError):
-            raise OCRError("Extracted CGPA or credits are not valid numbers.")
-            
-        if not regno or cgpa <= 0 or credits <= 0:
-            raise OCRError("Could not extract required fields (regno, cgpa, total_credits) from the image.")
-            
-        with get_db_connection() as conn:
-            conn.execute('''
-                INSERT INTO students (regno, name, prev_cgpa, prev_credits)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(regno) DO UPDATE SET
-                    name=excluded.name,
-                    prev_cgpa=excluded.prev_cgpa,
-                    prev_credits=excluded.prev_credits
-            ''', (regno, name, cgpa, credits))
-            conn.commit()
-            
-        return success_response({
-            "student_regno": regno,
-            "student_name": name,
-            "prev_cgpa": cgpa,
-            "prev_credits": credits,
-            "message": "Previous semester data saved successfully."
-        })
-        
-    except json.JSONDecodeError:
-        raise OCRError("Failed to parse OCR response for previous semester marksheet.")
 
 @app.post("/calculateGpa/")
 async def gpa_calculation(file: UploadFile = File(...)):
-    """Calculates the current GPA and the overall New CGPA based on cached previous records."""
+    # Step 1: Validate file type
     validate_upload_file(file)
+    
+    # Step 2: Read and validate file size
     image_bytes = await validate_file_size(file)
     
-    ocr_text = get_cached_or_run_ocr(image_bytes, OCR_PROMPT, "current_sem")
+    # Step 3: Perform OCR (with automatic key rotation)
+    ocr_text = do_ocr(image_bytes)
+    
+    # Step 4: Calculate GPA
     results = calculate_gpa_logic(ocr_text)
     
-    with get_db_connection() as conn:
-        for student in results:
-            regno = student["student_regno"]
-            name = student["student_name"]
-            current_gpa = student["gpa"]
-            current_credits = student["current_credits"]
-            results_json = json.dumps(student["results"])
-            
-            cursor = conn.execute("SELECT prev_cgpa, prev_credits FROM students WHERE regno = ?", (regno,))
-            row = cursor.fetchone()
-            
-            if row and row["prev_credits"] is not None and row["prev_cgpa"] is not None:
-                prev_cgpa = float(row["prev_cgpa"])
-                prev_credits = int(row["prev_credits"])
-                
-                # Formula implementation
-                new_cgpa = ((prev_credits * prev_cgpa) + (current_credits * current_gpa)) / (prev_credits + current_credits)
-                new_cgpa = round(new_cgpa, 2)
-                
-                student["prev_cgpa"] = prev_cgpa
-                student["prev_credits"] = prev_credits
-                student["new_cgpa"] = new_cgpa
-            else:
-                new_cgpa = current_gpa
-                student["new_cgpa"] = new_cgpa
-                
-            conn.execute('''
-                INSERT INTO students (regno, name, current_gpa, current_credits, new_cgpa, results_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(regno) DO UPDATE SET
-                    name=excluded.name,
-                    current_gpa=excluded.current_gpa,
-                    current_credits=excluded.current_credits,
-                    new_cgpa=excluded.new_cgpa,
-                    results_json=excluded.results_json
-            ''', (regno, name, current_gpa, current_credits, new_cgpa, results_json))
-        conn.commit()
-        
+    # Step 5: Return success response
     return success_response(results)
 
-@app.get("/student/{regno}")
-def get_student(regno: str):
-    """Retrieve full student record and GPA calculations by register number."""
-    with get_db_connection() as conn:
-        cursor = conn.execute("SELECT * FROM students WHERE regno = ?", (regno,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise AppException("STUDENT_NOT_FOUND", f"No data found for register number: {regno}", 404)
-            
-        data = dict(row)
-        if data.get("results_json"):
-            data["results"] = json.loads(data["results_json"])
-            
-        del data["results_json"]
-        
-        return success_response(data)
+@app.get("/return/")
+def return_jsonlist():
+    """Test endpoint with sample data"""
+    string_ = """{"student_regno": "REGNO-A", "student_name": "STUDENT-A", "results": [{"subject_code": "EBCC22I07", "grade": "B"}, {"subject_code": "EBCS22009", "grade": "C"}, {"subject_code": "EBCS22010", "grade": "C"}, {"subject_code": "EBCS22E11", "grade": "F"}, {"subject_code": "EBCS22L07", "grade": "S"}, {"subject_code": "EBCS22L08", "grade": "S"}, {"subject_code": "EBDS22ET6", "grade": "B"}, {"subject_code": "EBDS22I03", "grade": "B"}, {"subject_code": "EBDS22I04", "grade": "B"}, {"subject_code": "EBEE22OE6", "grade": "A"}, {"subject_code": "EBCS22006", "grade": "B"}, {"subject_code": "EBCS22007", "grade": "C"}]}
+{"student_regno": "REGNO-B", "student_name": "STUDENT-B", "results": [{"subject_code": "EBCC22I07", "grade": "A"}, {"subject_code": "EBCS22009", "grade": "C"}, {"subject_code": "EBCS22010", "grade": "C"}, {"subject_code": "EBCS22E11", "grade": "F"}, {"subject_code": "EBCS22L07", "grade": "S"}, {"subject_code": "EBCS22L08", "grade": "S"}, {"subject_code": "EBDS22ET6", "grade": "B"}, {"subject_code": "EBDS22I03", "grade": "A"}, {"subject_code": "EBDS22I04", "grade": "S"}, {"subject_code": "EBEE22OE8", "grade": "B"}, {"subject_code": "EBBT22OE1", "grade": "A"}]}"""
+    
+    results = calculate_gpa_logic(string_)
+    return success_response(results)
 
 @app.get("/debug/metadata")
 def debug_metadata():
+    """Debug endpoint - remove in production"""
     return success_response({
         "grade_points_count": len(grade_points_map),
         "subjects_count": len(subject_metadata),
         "sample_grades": dict(list(grade_points_map.items())[:5]),
         "sample_subjects": dict(list(subject_metadata.items())[:5]),
-        "api_keys_count": len(GROQ_API_KEYS)
+        "api_keys_count": len(GEMINI_API_KEYS)
     })
